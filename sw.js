@@ -4,8 +4,8 @@
  * - Android/Chrome (app installée) : « periodicsync » best-effort pour notifier les échéances
  *   du lendemain, lorsque le navigateur décide de le déclencher (non garanti).
  */
-const VERSION = "eeeeaa4e3761";
-const PRECACHE = ["./assets/fraunces-latin-600-normal-BFCDtZfi.woff2","./assets/fraunces-latin-600-normal-DL5QCzvS.woff","./assets/index-DF8Hlv7m.js","./assets/index-Da5Vsn6T.css","./icons/apple-touch-icon.png","./icons/badge-96.png","./icons/favicon.svg","./icons/icon-192.png","./icons/icon-512.png","./icons/maskable-512.png","./index.html","./manifest.webmanifest"];
+const VERSION = "ee0574bf17fb";
+const PRECACHE = ["./assets/fraunces-latin-600-normal-BFCDtZfi.woff2","./assets/fraunces-latin-600-normal-DL5QCzvS.woff","./assets/index-DUN37IMd.js","./assets/index-Da5Vsn6T.css","./icons/apple-touch-icon.png","./icons/badge-96.png","./icons/favicon.svg","./icons/icon-192.png","./icons/icon-512.png","./icons/maskable-512.png","./index.html","./manifest.webmanifest"];
 const CACHE = 'chema-' + VERSION;
 
 self.addEventListener('install', (event) => {
