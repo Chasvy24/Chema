@@ -1,0 +1,63 @@
+/*
+ * Palette « Chema » — modifiez les couleurs ici uniquement.
+ * Conversions écran approximatives des références Pantone de l'image d'inspiration.
+ */
+:root {
+  /* Mellow Yellow — Pantone 12-0720 TCX : épargne, repères, progressions */
+  --mellow-yellow: #f1dd9b;
+  --mellow-yellow-soft: #faf1d0;
+  --mustard: #c4952c; /* remplissage des barres d'épargne (nuance moutarde) */
+  --honey-ink: #6f520c; /* texte posé sur le jaune (contraste AA) */
+
+  /* Red Riding Hood — #551C25 : titres, accents, actions principales */
+  --bordeaux: #551c25;
+  --bordeaux-strong: #3f141b;
+  --bordeaux-hover: #6b2531;
+  --bordeaux-soft: #f4e8e8;
+
+  /* Country Air — Pantone 12-4303 TCX : différencier certaines cartes */
+  --country-air: #cbd9e8;
+  --country-air-soft: #e9f0f7;
+  --blue-ink: #2f4a66; /* texte posé sur le bleu */
+  --steel: #557799; /* barre de budget « normale » */
+  --steel-light: #b3c7db;
+
+  /* Accents discrets */
+  --terracotta: #9e4128;
+  --blush: #ecc0b3;
+
+  /* Fonds et textes : ivoire, crème, gris chaud */
+  --ivory: #fbf7ef;
+  --cream: #f3ebdd;
+  --cream-deep: #e9dfcd;
+  --card: #fffdf9;
+  --line: #e6dccb;
+  --ink: #2b2321;
+  --ink-2: #665b53;
+  --ink-3: #8a7f75;
+
+  /* États */
+  --warn: #b85c12; /* 80 % du budget */
+  --warn-fill: #df8a35;
+  --warn-light: #f3c897;
+  --warn-soft: #fcedda;
+  --danger: #b3261e; /* dépassement / retard */
+  --danger-fill: #c6382d;
+  --danger-light: #eba29a;
+  --danger-soft: #fce7e4;
+  --ok: #3f6b4c;
+  --ok-soft: #e5f0e6;
+
+  /* Typographie */
+  --font-title: 'Fraunces', Georgia, 'Times New Roman', serif;
+  --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+
+  /* Formes */
+  --radius: 18px;
+  --radius-sm: 12px;
+  --shadow: 0 1px 2px rgba(60, 35, 30, 0.06), 0 4px 14px rgba(60, 35, 30, 0.06);
+  --shadow-lg: 0 -6px 30px rgba(40, 20, 15, 0.18);
+  --tabbar-h: 68px;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-top: env(safe-area-inset-top, 0px);
+}
