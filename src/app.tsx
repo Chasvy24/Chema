@@ -3,11 +3,13 @@ import { Home, Wallet, CalendarClock, FolderLock, Plus, Camera, FilePlus2, Shiel
 import { data, commit, setSettings } from './db/store';
 import { alive } from './db/actions';
 import { isOverdue } from './lib/deadlines';
-import { route, go, openSheet } from './ui/router';
+import { route, go, openSheet, type Route } from './ui/router';
+import { Fragment } from 'preact';
 import { DialogHost, SheetBody, SheetHost, ToastHost } from './ui/kit';
 import { HomeScreen } from './screens/home';
 import { BudgetScreen, MonthScreen, RecurringScreen } from './screens/budget';
 import { ImportScreen } from './screens/import';
+import { DetectScreen } from './screens/detect';
 import { DeadlineDetail, DeadlinesScreen, openDeadlineForm } from './screens/deadlines';
 import { DocDetail, DocumentsScreen, openDocForm } from './screens/docs';
 import { GoalDetail, SavingsScreen } from './screens/savings';
@@ -19,6 +21,11 @@ import { installState } from './services/install';
 
 function Screen() {
   const r = route.value;
+  // Clé = adresse complète : chaque changement d'écran (ou de mois/monnaie dans l'adresse) repart d'un état neuf.
+  return <Fragment key={`${r.path}?${r.query.toString()}`}>{screenFor(r)}</Fragment>;
+}
+
+function screenFor(r: Route) {
   const [a, b] = r.parts;
   switch (a) {
     case undefined:
@@ -27,6 +34,7 @@ function Screen() {
       if (b === 'mois') return <MonthScreen />;
       if (b === 'charges') return <RecurringScreen />;
       if (b === 'import') return <ImportScreen />;
+      if (b === 'detecter') return <DetectScreen />;
       return <BudgetScreen />;
     case 'echeances':
       return b ? <DeadlineDetail id={b} /> : <DeadlinesScreen />;

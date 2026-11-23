@@ -13,7 +13,7 @@ const files = [];
   }
 })(dist);
 
-const precache = files.filter((f) => f !== 'sw.js' && !f.endsWith('.map')).map((f) => './' + f);
+const precache = files.filter((f) => f !== 'sw.js' && !f.endsWith('.map') && !f.split('/').some((part) => part.startsWith('.'))).map((f) => './' + f);
 const hash = createHash('sha256');
 for (const f of precache.sort()) hash.update(f).update(readFileSync(join(dist, f.slice(2))));
 const version = hash.digest('hex').slice(0, 12);

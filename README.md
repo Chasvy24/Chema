@@ -91,6 +91,13 @@ n'est pas en HTTPS — l'app s'affiche mais sans installation, hors ligne, chiff
   3 à 4 touches), *Ticket (photo)*, *Échéance*, *Document*.
 - **Accueil** : budget restant CHF et MAD côte à côte, prochaines échéances (demain en jaune,
   retards en rouge), objectifs d'épargne. Icônes en haut : recherche globale et réglages.
+- **Détection des charges fixes** : importez 2 à 6 mois de relevés CSV, puis Budget › Charges fixes ›
+  icône loupe (ou le bandeau proposé à la fin d'un import). Chema repère, sur le téléphone, les paiements
+  qui reviennent au même bénéficiaire vers le même jour avec un montant stable ou proche (montant
+  variable signalé), et les propose : vous cochez, corrigez nom/montant/jour/fréquence/catégorie, puis
+  validez. Les paiements déjà importés sont rattachés à leur charge (mois passés « payés », mois passés
+  sans paiement « ignorés », mois en cours « prévu » s'il n'est pas encore payé). Courses fréquentes,
+  retraits d'espèces et abonnements arrêtés ne sont pas proposés.
 - **Budget** : mois par mois et monnaie par monnaie ; charges fixes du mois (toucher une charge pour
   la marquer payée en ajustant le montant réel, l'ignorer ce mois-ci, ou modifier ses paramètres) ;
   totaux par catégorie et plafonds ; bouton liste = écran « Opérations » filtrable (période,
@@ -108,7 +115,8 @@ n'est pas en HTTPS — l'app s'affiche mais sans installation, hors ligne, chiff
 
 ### Premier démarrage conseillé
 1. Réglages › **Budgets** : montant mensuel CHF et MAD (+ plafonds facultatifs).
-2. Budget › **Charges fixes** : loyer, assurances, abonnements, Wi-Fi…
+2. Budget › **Importer** vos relevés CSV des derniers mois, puis **Charges fixes › Détecter** (ou saisie
+   à la main : loyer, assurances, abonnements, Wi-Fi…).
 3. **+ › Échéance** : factures, résiliations, impôts, documents qui expirent.
 4. Réglages › **Sauvegarde** : une première sauvegarde chiffrée.
 
@@ -152,7 +160,8 @@ après 30 jours.
 - Saisie rapide ; ticket photo rangé dans « Reçus » ; lecture automatique uniquement si le
   navigateur offre une détection de texte locale (sinon saisie manuelle).
 - Charges fixes : fréquence, jour, début/fin, suspension, montant réel par mois sans toucher à la
-  base (ou mise à jour explicite de la base), mois ignoré, pas de double comptage.
+  base (ou mise à jour explicite de la base), mois ignoré, pas de double comptage ; **détection
+  automatique depuis les relevés importés**, avec validation.
 - Import CSV : séparateurs/encodages/dates/montants courants, choix des colonnes, débit/crédit,
   lignes illisibles signalées, catégories proposées (et apprises), doublons à confirmer, crédits
   classés en remboursement ou autre entrée, rapprochement avec les charges fixes, résumé final.

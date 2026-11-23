@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'preact/hooks';
-import { FileUp, ShieldCheck, AlertTriangle, Check, Repeat, Copy } from 'lucide-preact';
+import { FileUp, ShieldCheck, AlertTriangle, Check, Repeat, Copy, ScanSearch } from 'lucide-preact';
 import { data, commit, put, setSettings, type Change } from '../db/store';
 import { categoriesOf, makeTx } from '../db/actions';
+import { coverage, detectRecurring } from '../lib/detect';
+import { today } from '../lib/dates';
 import { CurrencySeg, Seg, TopBar, Money } from '../ui/kit';
 import { analyzeColumns, decodeBytes, detectDelimiter, detectHeaderRow, extractRows, findDuplicate, guessMapping, matchOccurrence, parseCSV, type ColumnMapping, type ParsedRow } from '../lib/csv';
 import { suggestCategory, labelKey } from '../lib/categorize';
@@ -479,6 +481,20 @@ export function ImportScreen() {
             {summary.masked > 0 && <p class="small" style={{ marginBottom: 0 }}>{summary.masked} numéro(s) de compte/carte trouvé(s) dans les libellés ont été masqués.</p>}
             <p class="small muted" style={{ marginBottom: 0 }}>Le fichier CSV n’a pas été conservé dans l’application. Vous pouvez le supprimer de votre téléphone.</p>
           </div>
+          {(() => {
+            const cov = coverage(data.value.txs, cur);
+            const n = cov && cov.months >= 2 ? detectRecurring(data.value.txs, data.value.recurring, cur, today()).length : 0;
+            return n > 0 ? (
+              <button class="banner yellow" style={{ marginTop: 12 }} onClick={() => go(`/budget/detecter?cur=${cur}`)}>
+                <ScanSearch size={20} />
+                <span class="grow">
+                  <b>{n} charge{n > 1 ? 's' : ''} fixe{n > 1 ? 's' : ''} possible{n > 1 ? 's' : ''}</b> repérée{n > 1 ? 's' : ''} dans vos opérations {cur}. Les vérifier et les enregistrer ›
+                </span>
+              </button>
+            ) : cov && cov.months < 2 ? (
+              <p class="small muted" style={{ marginTop: 12 }}>Importez au moins 2 mois de relevés pour que Chema détecte vos charges fixes.</p>
+            ) : null;
+          })()}
           <div class="row" style={{ marginTop: 14 }}>
             <button class="btn" onClick={() => { setSummary(null); setStep('file'); }}>
               Autre relevé

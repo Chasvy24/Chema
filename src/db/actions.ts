@@ -5,10 +5,11 @@ import { data, commit, put, setSettings, uid, nowStamp, type Change } from './st
 import type { Category, Deadline, Doc, Goal, Move, Recurring, Tx, ID, DeadlineStatus } from './schema';
 import type { Currency } from '../lib/money';
 import { fmtMoney } from '../lib/money';
-import { addDays, addMonths as addMonthsSafe, currentMonth, fmtDate, monthOf, today, type ISODate, type MonthKey } from '../lib/dates';
+import { addDays, addMonthKey, addMonths as addMonthsSafe, currentMonth, firstDay, fmtDate, monthOf, today, type ISODate, type MonthKey } from '../lib/dates';
 import { labelKey } from '../lib/categorize';
 import { txMonth } from '../lib/budget';
-import type { Occurrence } from '../lib/recurring';
+import { dueDateIn, type Occurrence } from '../lib/recurring';
+import type { Candidate } from '../lib/detect';
 import { nextDate, noticeDeadline } from '../lib/deadlines';
 import { goalProgress } from '../lib/savings';
 import { choose, confirmAction, toast } from '../ui/feedback';
@@ -208,6 +209,68 @@ export async function deleteRecurring(rec: Recurring): Promise<boolean> {
   if (!ok) return false;
   await commit([put('recurring', { ...rec, deletedAt: nowStamp() })], { message: 'Charge fixe placée dans la corbeille', undo: true });
   return true;
+}
+
+export interface DetectedChoice {
+  cand: Candidate;
+  name: string;
+  amount: number;
+  frequency: Recurring['frequency'];
+  day: number;
+  categoryId: ID | null;
+}
+
+/**
+ * Crée les charges fixes validées après détection et rattache les paiements déjà enregistrés
+ * à leurs occurrences (mois « payés »). Les mois passés sans paiement retrouvé sont marqués « ignorés »
+ * pour ne pas apparaître comme dépenses prévues. Le mois en cours reste « prévu » s'il n'est pas encore payé.
+ */
+export async function createDetectedCharges(choices: DetectedChoice[]): Promise<{ created: number; linked: number }> {
+  const stamp = nowStamp();
+  const t = today();
+  const cm = currentMonth();
+  const changes: Change[] = [];
+  let linked = 0;
+  for (const c of choices) {
+    const rec: Recurring = {
+      id: uid(),
+      name: c.name.trim() || c.cand.name,
+      currency: c.cand.currency,
+      categoryId: c.categoryId,
+      day: Math.min(31, Math.max(1, c.day)),
+      frequency: c.frequency,
+      startDate: firstDay(c.cand.firstMonth),
+      amounts: [{ from: '2000-01', amount: c.amount }],
+      overrides: {},
+      pauses: [],
+      note: 'Détectée depuis vos relevés',
+      createdAt: stamp,
+      updatedAt: stamp,
+    };
+    const used = new Set<MonthKey>();
+    for (const m of c.cand.matches) {
+      if (!dueDateIn(rec, m.month) || used.has(m.month)) continue;
+      const tx = findTx(m.txId);
+      if (!tx || tx.deletedAt || tx.occurrence) continue;
+      used.add(m.month);
+      linked++;
+      const next: Tx = { ...tx, occurrence: `${rec.id}@${m.month}`, categoryId: rec.categoryId ?? tx.categoryId, updatedAt: stamp };
+      if (m.month !== monthOf(tx.date)) next.month = m.month;
+      else delete next.month;
+      changes.push(put('txs', next));
+    }
+    for (let m = c.cand.firstMonth; m < cm; m = addMonthKey(m, 1)) {
+      const due = dueDateIn(rec, m);
+      if (due && due < t && !used.has(m)) rec.overrides[m] = { skipped: true };
+    }
+    changes.push(put('recurring', rec));
+  }
+  const created = choices.length;
+  await commit(changes, {
+    message: `${created} charge${created > 1 ? 's' : ''} fixe${created > 1 ? 's' : ''} créée${created > 1 ? 's' : ''} · ${linked} paiement${linked > 1 ? 's' : ''} passé${linked > 1 ? 's' : ''} rattaché${linked > 1 ? 's' : ''}`,
+    undo: true,
+  });
+  return { created, linked };
 }
 
 // ---------- Échéances ----------

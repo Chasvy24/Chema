@@ -130,7 +130,7 @@ await step('Détection de numéro sensible dans un libellé', async () => {
 
 await step('Charges fixes : loyer et Wi-Fi', async () => {
   await page.goto(URL_ + '#/budget/charges');
-  await page.getByRole('button', { name: 'Ajouter une charge fixe' }).click();
+  await page.getByRole('button', { name: 'Ajouter à la main' }).click();
   await sheet().getByPlaceholder(/Loyer/).fill('Loyer');
   await sheet().locator('input.amount').fill('1500');
   await sheet().getByRole('button', { name: 'CHF · Suisse' }).click();
@@ -469,6 +469,75 @@ await shot('20-budget-final');
 await page.goto(URL_ + '#/');
 await page.waitForTimeout(300);
 await shot('21-accueil-final');
+
+// ---------- Détection des charges fixes, sur un téléphone « neuf » ----------
+const ctx2 = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true, locale: 'fr-CH', timezoneId: 'Europe/Zurich' });
+const p2 = await ctx2.newPage();
+p2.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
+p2.on('console', (m) => m.type() === 'error' && errors.push('console: ' + m.text()));
+const shot2 = (n) => p2.screenshot({ path: `${SHOTS}${n}.png` });
+const dd = (offset, day) => {
+  const x = new Date(now.getFullYear(), now.getMonth() + offset, day);
+  return `${String(x.getDate()).padStart(2, '0')}.${String(x.getMonth() + 1).padStart(2, '0')}.${x.getFullYear()}`;
+};
+
+await step('Détection des charges fixes depuis 4 mois de relevé', async () => {
+  const rows = ['Date;Texte de notification;Crédit en CHF;Débit en CHF'];
+  const add = (date, label, debit) => rows.push(`${date};${label};;-${debit}`);
+  add(dd(-3, 1), 'ORDRE PERMANENT REGIE DUPONT SA LOYER', '1500.00');
+  add(dd(-3, 30), 'ORDRE PERMANENT REGIE DUPONT SA LOYER', '1500.00'); // loyer du mois suivant payé en avance
+  add(dd(-1, 1), 'ORDRE PERMANENT REGIE DUPONT SA LOYER', '1500.00');
+  add(dd(0, 1), 'ORDRE PERMANENT REGIE DUPONT SA LOYER', '1500.00');
+  add(dd(-3, 28), 'LSV+ SWISSCOM (SCHWEIZ) AG 3050 BERN', '59.90');
+  add(dd(-2, 27), 'LSV+ SWISSCOM (SCHWEIZ) AG 3050 BERN', '64.20');
+  add(dd(-1, 28), 'LSV+ SWISSCOM (SCHWEIZ) AG 3050 BERN', '61.30');
+  for (const o of [-3, -2, -1, 0]) add(dd(o, 15), 'SPOTIFY P1234567 STOCKHOLM', '12.95');
+  for (const [o, day, amt] of [[-3, 3, '45.60'], [-3, 12, '88.10'], [-2, 4, '23.95'], [-2, 18, '61.40'], [-1, 6, '37.20'], [-1, 20, '52.75'], [0, 4, '19.90']]) add(dd(o, day), 'ACHAT CARTE MIGROS GENEVE', amt);
+  add(dd(-2, 14), 'IKEA VERNIER', '349.90');
+  const f = SHOTS + 'releve-4-mois.csv';
+  writeFileSync(f, rows.join('\r\n'));
+
+  await p2.goto(URL_);
+  await p2.getByRole('dialog', { name: 'Bienvenue' }).waitFor();
+  await p2.locator('.sheet .btn.ghost', { hasText: 'Plus tard' }).click();
+  await p2.waitForTimeout(400);
+  await p2.goto(URL_ + '#/budget/import');
+  await p2.locator('input[type=file]').setInputFiles(f);
+  await p2.getByRole('button', { name: 'Vérifier les opérations' }).click();
+  await p2.getByRole('button', { name: /^Continuer/ }).click();
+  await p2.getByRole('button', { name: /^Importer \d+ opération/ }).click();
+  await p2.waitForTimeout(400);
+  const banner = p2.getByText(/charges? fixes? possibles?/);
+  await banner.waitFor();
+  expect((await banner.innerText()).includes('3 charges fixes possibles'), 'bandeau : ' + (await banner.innerText()));
+  await banner.click();
+  await p2.waitForTimeout(400);
+  const txt = await p2.locator('main').innerText();
+  expect(txt.includes('3 charges fixes trouvées'), 'trois candidates : ' + txt.slice(0, 300));
+  expect(!/migros|ikea/i.test(txt.split('3 charges fixes trouvées')[1].split('Les paiements déjà importés')[0]), 'courses et achat ponctuel exclus');
+  expect(txt.includes('Montant variable'), 'Swisscom variable signalé');
+  await shot2('22-detection');
+  await p2.locator('input[aria-label="Nom de la charge"]').first().fill('Loyer');
+  await p2.getByRole('button', { name: /^Créer 3 charges fixes/ }).click();
+  await p2.waitForTimeout(500);
+  expect(p2.url().includes('#/budget/charges'), 'retour à la liste');
+  const list = await p2.locator('main').innerText();
+  expect(list.includes('Loyer') && list.includes('Swisscom') && list.includes('Spotify'), 'charges créées : ' + list.slice(0, 200));
+  await shot2('23-charges-detectees');
+  // Mois précédent : tout est payé ou ignoré (rien de « prévu »)
+  const prev = (() => { const x = new Date(now.getFullYear(), now.getMonth() - 1, 1); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}`; })();
+  await p2.goto(URL_ + `#/budget?cur=CHF&m=${prev}`);
+  await p2.waitForTimeout(300);
+  const prevCard = (await p2.locator('.card.blue').first().innerText()).replace(/\s| /g, '');
+  expect(prevCard.includes('Chargesfixesprévues(nonpayées)−0.00'), 'mois précédent sans charge prévue : ' + prevCard);
+  // Mois en cours : loyer et Spotify payés, Swisscom (vers le 28) prévu
+  await p2.goto(URL_ + '#/budget?cur=CHF');
+  await p2.waitForTimeout(300);
+  const curText = await p2.locator('main').innerText();
+  if (now.getDate() < 27) expect(/Swisscom[\s\S]*Prévue/.test(curText), 'Swisscom prévue ce mois-ci');
+  await shot2('24-budget-apres-detection');
+});
+await ctx2.close();
 
 await browser.close();
 server.kill();

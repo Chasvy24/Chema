@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'preact/hooks';
-import { Check, FileUp, List, Pause, Play, Plus, Repeat, Settings2, Trash2, Wallet, Receipt, RotateCcw, ArrowDownLeft, Ban } from 'lucide-preact';
+import { Check, FileUp, List, Pause, Play, Plus, Repeat, Settings2, Trash2, Wallet, Receipt, RotateCcw, ArrowDownLeft, Ban, ScanSearch } from 'lucide-preact';
 import { data } from '../db/store';
 import { alive, catName, categoriesOf, deleteRecurring, payOccurrence, pauseRecurring, resumeRecurring, saveRecurring, setOccurrence, withBaseFrom, findRecurring } from '../db/actions';
 import { uid, nowStamp } from '../db/store';
@@ -303,9 +303,14 @@ export function BudgetScreen() {
         ) : (
           <Empty icon={<Repeat size={26} />} title={hasAnyRec ? 'Aucune charge fixe ce mois-ci' : 'Pas encore de charges fixes'} text={hasAnyRec ? `Aucune charge ${cur} ne tombe en ${monthLabel(month, false)}.` : 'Définissez une seule fois loyer, assurances, abonnements, Wi-Fi… Ils seront ajoutés chaque mois comme dépenses prévues.'}>
             {!hasAnyRec && (
-              <button class="btn primary" onClick={() => openRecurringForm(undefined, cur)}>
-                Ajouter une charge fixe
-              </button>
+              <div class="stack">
+                <button class="btn primary block" onClick={() => go(`/budget/detecter?cur=${cur}`)}>
+                  <ScanSearch size={18} /> Détecter depuis mes relevés
+                </button>
+                <button class="btn block" onClick={() => openRecurringForm(undefined, cur)}>
+                  Ajouter à la main
+                </button>
+              </div>
             )}
           </Empty>
         )}
@@ -525,6 +530,9 @@ export function RecurringScreen() {
   return (
     <>
       <TopBar title="Charges fixes" sub="Ajoutées chaque mois comme « prévues »" back={() => goBack('/budget')}>
+        <button class="icon-btn soft" aria-label="Détecter mes charges fixes dans mes relevés" onClick={() => go('/budget/detecter')}>
+          <ScanSearch size={22} />
+        </button>
         <button class="icon-btn soft" aria-label="Nouvelle charge fixe" onClick={() => openRecurringForm()}>
           <Plus size={24} />
         </button>
@@ -566,9 +574,14 @@ export function RecurringScreen() {
         })
       ) : (
         <Empty icon={<Repeat size={26} />} title="Aucune charge fixe" text="Loyer, assurances, abonnements, Wi-Fi : définissez-les une fois, elles apparaîtront chaque mois comme dépenses prévues jusqu’à confirmation du paiement.">
-          <button class="btn primary" onClick={() => openRecurringForm()}>
-            Ajouter une charge fixe
-          </button>
+          <div class="stack">
+            <button class="btn primary block" onClick={() => go('/budget/detecter')}>
+              <ScanSearch size={18} /> Détecter depuis mes relevés
+            </button>
+            <button class="btn block" onClick={() => openRecurringForm()}>
+              Ajouter à la main
+            </button>
+          </div>
         </Empty>
       )}
     </>
