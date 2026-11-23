@@ -4,8 +4,8 @@
  * - Android/Chrome (app installée) : « periodicsync » best-effort pour notifier les échéances
  *   du lendemain, lorsque le navigateur décide de le déclencher (non garanti).
  */
-const VERSION = "812360b50e89";
-const PRECACHE = ["./assets/fraunces-latin-600-normal-BFCDtZfi.woff2","./assets/fraunces-latin-600-normal-DL5QCzvS.woff","./assets/index-D2tbOnKr.js","./assets/index-Da5Vsn6T.css","./icons/apple-touch-icon.png","./icons/badge-96.png","./icons/favicon.svg","./icons/icon-192.png","./icons/icon-512.png","./icons/maskable-512.png","./index.html","./manifest.webmanifest"];
+const VERSION = "f416e568c129";
+const PRECACHE = ["./assets/fraunces-latin-600-normal-BFCDtZfi.woff2","./assets/fraunces-latin-600-normal-DL5QCzvS.woff","./assets/index-Da5Vsn6T.css","./assets/index-Dc7vsJVy.js","./icons/apple-touch-icon.png","./icons/badge-96.png","./icons/favicon.svg","./icons/icon-192.png","./icons/icon-512.png","./icons/maskable-512.png","./index.html","./manifest.webmanifest"];
 const CACHE = 'chema-' + VERSION;
 
 self.addEventListener('install', (event) => {
@@ -44,7 +44,21 @@ self.addEventListener('fetch', (event) => {
     );
     return;
   }
-  event.respondWith(caches.match(req, { ignoreSearch: true, ignoreVary: true }).then((hit) => hit || fetch(req)));
+  // Fichiers de l'application : cache d'abord ; ceux qui n'ont pas été pré-téléchargés (ex. lecteur PDF)
+  // sont mis en cache à leur première utilisation.
+  event.respondWith(
+    caches.match(req, { ignoreSearch: true, ignoreVary: true }).then(
+      (hit) =>
+        hit ||
+        fetch(req).then((res) => {
+          if (res.ok && url.pathname.includes('/assets/')) {
+            const copy = res.clone();
+            caches.open(CACHE).then((c) => c.put(req, copy));
+          }
+          return res;
+        }),
+    ),
+  );
 });
 
 // ---------- Rappels en arrière-plan (best-effort) ----------
