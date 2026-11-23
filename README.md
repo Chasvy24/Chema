@@ -91,12 +91,14 @@ n'est pas en HTTPS — l'app s'affiche mais sans installation, hors ligne, chiff
   3 à 4 touches), *Ticket (photo)*, *Échéance*, *Document*.
 - **Accueil** : budget restant CHF et MAD côte à côte, prochaines échéances (demain en jaune,
   retards en rouge), objectifs d'épargne. Icônes en haut : recherche globale et réglages.
-- **Import de relevés PDF ou CSV** (Budget › icône import) : choisissez un CSV, ou **un ou plusieurs
-  PDF** (ex. les relevés mensuels des derniers mois, d'un coup). Le PDF est lu sur le téléphone avec
-  PDF.js (Mozilla, embarqué dans l'app) ; Chema reconstitue le tableau (Date, Libellé, Débit, Crédit,
-  Solde…), vous vérifiez les colonnes, puis chaque opération. En-têtes, soldes, totaux et pieds de page
-  sont écartés ; les libellés sur plusieurs lignes sont recollés. PDF protégé : le mot de passe est
-  demandé et sert seulement à ouvrir le fichier. PDF scanné (image) : illisible, utilisez le CSV.
+- **Import de relevés PDF ou CSV** (Budget › icône import) : choisissez le compte (CHF ou MAD) puis
+  **un ou plusieurs PDF** (ex. les relevés des derniers mois, d'un coup). Chema lit le PDF sur le
+  téléphone (PDF.js, embarqué), trouve tout seul les colonnes en essayant les lectures possibles et
+  **vérifie les montants avec le solde imprimé sur le relevé** quand il y en a un. Il affiche
+  directement les dépenses et les entrées trouvées, avec une catégorie proposée : vous décochez ou
+  corrigez, puis « Ajouter ». Doublons déjà enregistrés écartés. En cas de lecture fausse (rare) :
+  lien « Corriger la lecture » (choix des colonnes). PDF protégé : le mot de passe sert seulement à
+  l'ouvrir. PDF scanné (image) : illisible, utilisez le CSV.
 - **Détection des charges fixes** : importez 2 à 6 mois de relevés (PDF ou CSV), puis Budget › Charges fixes ›
   icône loupe (ou le bandeau proposé à la fin d'un import). Chema repère, sur le téléphone, les paiements
   qui reviennent au même bénéficiaire vers le même jour avec un montant stable ou proche (montant

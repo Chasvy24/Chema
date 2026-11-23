@@ -1,7 +1,7 @@
 // Import de relevés bancaires CSV téléchargés manuellement. Aucune connexion bancaire.
 // Le contenu brut n'est jamais enregistré : seules les opérations validées le sont.
 
-import { parseUserDate, diffDays, addDays, today, type ISODate } from './dates';
+import { parseUserDate, parseTextDate, diffDays, addDays, today, type ISODate } from './dates';
 import { parseAmount } from './money';
 import { detectSensitive, maskSensitive } from './sensitive';
 import { labelSimilarity } from './categorize';
@@ -276,11 +276,25 @@ export interface ExtractOptions {
 
 // Dans les libellés bancaires, les références du type « P1234567 » ne sont pas des numéros de passeport :
 // on masque IBAN, cartes, AVS et numéros de compte, pas ces références.
-const maskLabel = (s: string) => maskSensitive(s, { skip: ['id'] });
+const maskCache = new Map<string, { text: string; count: number }>();
+const maskLabel = (s: string) => {
+  let r = maskCache.get(s);
+  if (!r) {
+    r = maskSensitive(s, { skip: ['id'] });
+    if (maskCache.size > 5000) maskCache.clear();
+    maskCache.set(s, r);
+  }
+  return r;
+};
+
+// Lignes de totaux et de soldes : jamais importées comme opérations.
+const TOTAL_RE = /(total|solde|saldo|report|übertrag|ubertrag|summe|balance|nouveau solde|ancien solde)/i;
 
 function parseDateCell(value: string, order: 'dmy' | 'mdy' | 'ymd', yearHint?: number, ref: ISODate = today()): ISODate | null {
   const d = parseUserDate(value, order);
   if (d || !yearHint) return d;
+  const t = parseTextDate(value, yearHint);
+  if (t) return t > addDays(ref, 31) ? parseTextDate(value, yearHint - 1) : t;
   const m = value.trim().match(/^(\d{1,2})[./-](\d{1,2})\.?$/);
   if (!m) return null;
   const [a, b] = order === 'mdy' ? [+m[2], +m[1]] : [+m[1], +m[2]];
@@ -301,7 +315,7 @@ export function extractRows(rows: string[][], headerRow: number, map: ColumnMapp
     const line = headerRow + 2 + i;
     const rawLabel = [r[map.label] ?? '', map.label2 >= 0 ? r[map.label2] ?? '' : ''].filter(Boolean).join(' · ').replace(/\s+/g, ' ').trim();
     const { text: label, count: maskedCount } = maskLabel(rawLabel);
-    const date = parseDateCell(r[map.date] ?? '', order, opts.yearHint);
+    let date = parseDateCell(r[map.date] ?? '', order, opts.yearHint);
     let amount: number | null = null;
     let credit = false;
     if (map.mode === 'split') {
@@ -320,6 +334,12 @@ export function extractRows(rows: string[][], headerRow: number, map: ColumnMapp
         amount = Math.abs(a);
         credit = map.sign === 'negative' ? a > 0 : a < 0;
       }
+    }
+    // Relevés qui n'impriment la date qu'une fois par jour : la ligne reprend la date de l'opération précédente.
+    if (opts.pdf && !date && amount && lastOk?.date && label && !TOTAL_RE.test(label)) {
+      const meta = opts.lineMeta?.[headerRow + 1 + i];
+      const samePage = meta && lastMeta ? meta.page === lastMeta.page : i - lastOkIndex <= 3;
+      if (samePage) date = lastOk.date;
     }
     if (opts.pdf && !date) {
       const otherText = r.some((cell, k) => cell && k !== map.label && k !== map.label2 && k !== map.date);

@@ -47,6 +47,16 @@ page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
 page.on('console', (m) => m.type() === 'error' && errors.push('console: ' + m.text()));
 
 const shot = (n) => page.screenshot({ path: `${SHOTS}${n}.png` });
+/** Nouveau parcours d'import : bouton « Ajouter N opérations », confirmation, écran « C’est ajouté ». */
+async function addAll(pg) {
+  await pg.locator('main').getByRole('button', { name: /^Ajouter \d+ opération/ }).click();
+  await pg.getByRole('alertdialog').getByRole('button', { name: /^Ajouter \d+ opération/ }).click();
+  await pg.getByText('C’est ajouté').waitFor();
+}
+const reviewText = async (pg) => {
+  await pg.getByText(/trouvées? *$|trouvée/).first().waitFor({ timeout: 30000 });
+  return (await pg.locator('main').innerText()).replace(/[\u202f\u00a0]/g, ' ');
+};
 const sheet = () => page.locator('section.sheet').last();
 const tapText = (t) => page.getByText(t, { exact: true }).first().click();
 const toastText = async () => (await page.locator('.toast .msg').allTextContents()).join(' | ');
@@ -319,21 +329,14 @@ await step('Import CSV : colonnes, doublon, crédit, charge fixe, résumé', asy
   writeFileSync(f, Buffer.from(csv, 'latin1'));
   await page.goto(URL_ + '#/budget/import');
   await page.locator('input[type=file]').setInputFiles(f);
-  await page.getByText('Aperçu et colonnes').waitFor();
-  expect(await page.getByText(/opération\(s\) lisible/).count(), 'compteur lisibles');
-  await shot('13-import-colonnes');
-  await page.getByRole('button', { name: 'Vérifier les opérations' }).click();
-  await page.waitForTimeout(200);
-  const txt = await page.locator('main').innerText();
-  expect(txt.includes('doublon(s) possible(s)'), 'doublon signalé');
-  expect(txt.includes('Correspond à la charge fixe « Loyer »'), 'charge fixe reconnue');
-  expect(txt.includes('Lignes non interprétables (1)'), 'ligne illisible signalée');
+  const txt = await reviewText(page);
+  expect(txt.includes('déjà enregistrée'), 'doublon signalé : ' + txt.slice(0, 300));
+  expect(txt.includes('Paiement de la charge fixe « Loyer »'), 'charge fixe reconnue');
+  expect(txt.includes('1 ligne non lue'), 'ligne illisible signalée');
   await shot('14-import-verification');
-  await page.getByRole('button', { name: /^Continuer/ }).click();
-  await page.getByRole('button', { name: /^Importer \d+ opération/ }).click();
-  await page.waitForTimeout(400);
+  await addAll(page);
   const done = await page.locator('main').innerText();
-  expect(done.includes('Import terminé') && done.includes('Doublons non ajoutés'), 'résumé');
+  expect(done.includes('C’est ajouté') && done.includes('Non ajoutées'), 'résumé');
   await shot('15-import-resume');
   await closeToasts();
   await page.goto(URL_ + '#/budget?cur=CHF');
@@ -503,9 +506,8 @@ await step('Détection des charges fixes depuis 4 mois de relevé', async () => 
   await p2.waitForTimeout(400);
   await p2.goto(URL_ + '#/budget/import');
   await p2.locator('input[type=file]').setInputFiles(f);
-  await p2.getByRole('button', { name: 'Vérifier les opérations' }).click();
-  await p2.getByRole('button', { name: /^Continuer/ }).click();
-  await p2.getByRole('button', { name: /^Importer \d+ opération/ }).click();
+  await reviewText(p2);
+  await addAll(p2);
   await p2.waitForTimeout(400);
   const banner = p2.getByText(/charges? fixes? possibles?/);
   await banner.waitFor();
@@ -555,17 +557,11 @@ await step('Import de 3 relevés PDF suisses puis détection des charges fixes',
   await p3.goto(URL_ + '#/budget/import');
   await p3.getByRole('button', { name: 'CHF · Suisse' }).click();
   await p3.locator('input[type=file]').setInputFiles(pdfs.swiss);
-  await p3.getByText('Aperçu et colonnes').waitFor({ timeout: 30000 });
-  const info = await p3.locator('main').innerText();
-  expect(info.includes('PDF lu sur le téléphone : 3 fichiers') && info.includes('21 opération(s) lisible(s)'), 'lecture PDF : ' + info.slice(0, 400));
-  await p3.screenshot({ path: `${SHOTS}25-import-pdf.png` });
-  await p3.getByRole('button', { name: 'Vérifier les opérations' }).click();
-  await p3.getByText('Vérifiez chaque ligne').waitFor();
-  const review = (await p3.locator('main').innerText()).replace(/[\u202f\u00a0]/g, ' ');
+  const review = await reviewText(p3);
+  expect(review.includes('18 dépenses et 3 entrées trouvées') && review.includes('Montants vérifiés avec le solde du relevé'), 'lecture PDF : ' + review.slice(0, 400));
   expect(review.includes('Ordre permanent Régie Dupont SA, Loyer') && review.includes('+5 200.00'), 'libellés et crédit : ' + review.slice(0, 300));
-  await p3.getByRole('button', { name: /^Continuer/ }).click();
-  await p3.getByRole('button', { name: /^Importer \d+ opération/ }).click();
-  await p3.waitForTimeout(400);
+  await p3.screenshot({ path: `${SHOTS}25-import-pdf.png` });
+  await addAll(p3);
   const banner = p3.getByText(/charges? fixes? possibles?/);
   await banner.waitFor();
   await banner.click();
@@ -582,30 +578,36 @@ await step('Import d’un relevé PDF marocain (MAD, plusieurs pages)', async ()
   await p3.goto(URL_ + '#/budget/import');
   await p3.getByRole('button', { name: 'MAD · Maroc' }).click();
   await p3.locator('input[type=file]').setInputFiles(pdfs.morocco);
-  await p3.getByText('Aperçu et colonnes').waitFor({ timeout: 30000 });
-  const info = await p3.locator('main').innerText();
-  expect(info.includes('32 opération(s) lisible(s)'), 'lecture PDF MA : ' + info.slice(0, 300));
-  await p3.getByRole('button', { name: 'Vérifier les opérations' }).click();
-  await p3.getByText('Vérifiez chaque ligne').waitFor();
-  const review = (await p3.locator('main').innerText()).replace(/[\u202f\u00a0]/g, ' ');
+  const review = await reviewText(p3);
+  expect(review.includes('30 dépenses et 2 entrées trouvées'), 'lecture PDF MA : ' + review.slice(0, 300));
   expect(review.includes('PRLV LOYER APPARTEMENT CASA') && review.includes('+8 000.00'), 'libellés MA : ' + review.slice(0, 300));
 });
-await step('Relevé PDF sans ligne de titres : colonnes numérotées, exemples et devinées', async () => {
-  await p3.goto(URL_ + '#/');
-  await p3.waitForTimeout(200);
+await ctx3.close();
+const ctx4 = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true, locale: 'fr-CH', timezoneId: 'Europe/Zurich' });
+const p4 = await ctx4.newPage();
+p4.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
+p4.on('console', (m) => m.type() === 'error' && errors.push('console: ' + m.text()));
+await step('Relevé PDF sans ligne de titres : lu automatiquement, réglages cachés disponibles', async () => {
+  const p3 = p4;
+  await p3.goto(URL_);
+  await p3.getByRole('dialog', { name: 'Bienvenue' }).waitFor();
+  await p3.locator('.sheet .btn.ghost', { hasText: 'Plus tard' }).click();
+  await p3.waitForTimeout(400);
   await p3.goto(URL_ + '#/budget/import');
   await p3.getByRole('button', { name: 'CHF · Suisse' }).click();
   await p3.locator('input[type=file]').setInputFiles(pdfs.headerless);
-  await p3.getByText('Aperçu et colonnes').waitFor({ timeout: 30000 });
-  const info = (await p3.locator('main').innerText()).replace(/[\u202f\u00a0]/g, ' ');
-  expect(info.includes('5 opération(s) lisible(s)'), 'lecture : ' + info.slice(0, 300));
-  expect(/Exemple : .* Ordre permanent Régie Dupont SA · −1 500\.00 CHF/.test(info), 'exemple avec signe − : ' + info.slice(0, 500));
+  const info = await reviewText(p3);
+  expect(info.includes('4 dépenses et 1 entrée trouvées') && info.includes('Montants vérifiés'), 'lecture : ' + info.slice(0, 300));
+  expect(info.includes('Ordre permanent Régie Dupont SA') && info.includes('1 500.00') && info.includes('+5 200.00'), 'montants et sens : ' + info.slice(0, 500));
+  await p3.screenshot({ path: `${SHOTS}27-import-sans-titres.png` });
+  // Réglages avancés (cachés) : colonnes numérotées avec exemples
+  await p3.getByRole('button', { name: /Corriger la lecture/ }).click();
+  await p3.getByText('Corriger la lecture', { exact: true }).waitFor();
   const opts = await p3.locator('main select').first().locator('option').allInnerTexts();
   expect(opts.some((o) => /Colonne 1 — ex\. \d{2}\.\d{2}\.\d{4}/.test(o)), 'exemples dans les menus : ' + opts.join(' | '));
   expect((await p3.locator('table thead th').allInnerTexts()).join('|').includes('Colonne 1'), 'en-têtes numérotés');
-  await p3.screenshot({ path: `${SHOTS}27-import-sans-titres.png` });
 });
-await ctx3.close();
+await ctx4.close();
 
 await browser.close();
 server.kill();

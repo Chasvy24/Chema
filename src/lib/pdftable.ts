@@ -1,7 +1,7 @@
 // Reconstruction d'un tableau (lignes × colonnes) à partir du texte positionné d'un relevé PDF.
 // Fonction pure (testable) : le texte est extrait par PDF.js sur le téléphone (services/pdf.ts).
 
-import { parseUserDate } from './dates';
+import { parseTextDate, parseUserDate } from './dates';
 
 export interface PdfTextItem {
   str: string;
@@ -31,15 +31,15 @@ const AMOUNT_RE = /^[-+−]?\(?\s*(?:[A-Z]{3}\s*)?\d{1,3}(?:[ '’.  ]?\d{3})
 const DATE_RE = /^\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?$/;
 
 export const isAmountText = (s: string) => AMOUNT_RE.test(s.trim());
-export const isDateText = (s: string) => DATE_RE.test(s.trim()) || parseUserDate(s) !== null;
+export const isDateText = (s: string) => DATE_RE.test(s.trim()) || parseUserDate(s) !== null || parseTextDate(s, 2000) !== null;
 
-const LEAD_DATE = /^(\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?)\s+(.+)$/;
+const LEAD_DATE = /^(\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?|\d{1,2}\.?\s[A-Za-zÀ-ÿ]{3,9}\.?(?:\s\d{4})?)\s+(.+)$/;
 const TRAIL_DATE = /^(.*[A-Za-zÀ-ÿ].*?)\s+(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})$/;
 const TRAIL_AMOUNT = /^(.*[A-Za-zÀ-ÿ].*?)\s+([-+−]?\d{1,3}(?:[ '’.\u202f\u00a0]\d{3})*[.,]\d{2}-?)$/;
 
 /** Vraie date (jj.mm.aaaa, ou jj.mm valide) — « 12.50 » n'en est pas une. */
 function isDateToken(s: string): boolean {
-  if (parseUserDate(s)) return true;
+  if (parseUserDate(s) || parseTextDate(s, 2000)) return true;
   const m = s.match(/^(\d{1,2})[./-](\d{1,2})$/);
   return !!m && +m[1] >= 1 && +m[1] <= 31 && +m[2] >= 1 && +m[2] <= 12;
 }

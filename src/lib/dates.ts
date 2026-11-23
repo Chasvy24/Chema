@@ -151,6 +151,48 @@ export function parseUserDate(input: string, order: 'dmy' | 'mdy' | 'ymd' | 'aut
   }
   m = s.match(/^(\d{4})(\d{2})(\d{2})$/);
   if (m) return build(+m[1], +m[2], +m[3]);
+  return parseTextDate(s);
+}
+
+const MONTH_WORDS: Array<[RegExp, number]> = [
+  [/^(janv?|janvier|januar|january)$/, 1],
+  [/^(f[ée]vr?|feb|f[ée]vrier|februar|february)$/, 2],
+  [/^(mars?|m[äa]rz|march)$/, 3],
+  [/^(avr|apr|avril|april)$/, 4],
+  [/^(mai|may)$/, 5],
+  [/^(juin|jun|juni|june)$/, 6],
+  [/^(juil|jul|juillet|juli|july)$/, 7],
+  [/^(ao[uû]t?|aug|august)$/, 8],
+  [/^(sept?|septembre|september)$/, 9],
+  [/^(oct|okt|octobre|oktober|october)$/, 10],
+  [/^(nov|novembre|november)$/, 11],
+  [/^(d[ée]c|dez|d[ée]cembre|dezember|december)$/, 12],
+];
+
+export function monthFromWord(w: string): number | null {
+  const x = w.toLowerCase().replace(/\.$/, '');
+  for (const [re, n] of MONTH_WORDS) if (re.test(x)) return n;
+  return null;
+}
+
+/** « 01 oct. 2026 », « 1. Oktober 2026 », « 01-OCT-26 », « Oct 1, 2026 » ; sans année : `yearHint`. */
+export function parseTextDate(input: string, yearHint?: number): ISODate | null {
+  const s = input.trim();
+  let m = s.match(/^(\d{1,2})\.?[\s-]*([A-Za-zÀ-ÿ]{3,9})\.?(?:[\s-]*(\d{2,4}))?$/);
+  if (m) {
+    const mo = monthFromWord(m[2]);
+    let y = m[3] ? +m[3] : yearHint;
+    if (!mo || !y) return null;
+    if (m[3] && m[3].length === 2) y += y >= 70 ? 1900 : 2000;
+    return build(y, mo, +m[1]);
+  }
+  m = s.match(/^([A-Za-z]{3,9})\.?\s+(\d{1,2}),?(?:\s+(\d{4}))?$/);
+  if (m) {
+    const mo = monthFromWord(m[1]);
+    const y = m[3] ? +m[3] : yearHint;
+    if (!mo || !y) return null;
+    return build(y, mo, +m[2]);
+  }
   return null;
 }
 
