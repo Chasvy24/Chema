@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'preact/hooks';
+import type { ComponentChildren } from 'preact';
 import { FileUp, ShieldCheck, AlertTriangle, Check, Repeat, Copy, ScanSearch } from 'lucide-preact';
 import { data, commit, put, setSettings, type Change } from '../db/store';
 import { categoriesOf, makeTx } from '../db/actions';
 import { coverage, detectRecurring } from '../lib/detect';
 import { today } from '../lib/dates';
 import { CurrencySeg, Seg, TopBar, Money } from '../ui/kit';
-import { analyzeColumns, decodeBytes, detectDelimiter, detectHeaderRow, extractRows, findDuplicate, guessMapping, matchOccurrence, parseCSV, type ColumnMapping, type ParsedRow } from '../lib/csv';
+import { analyzeColumns, decodeBytes, detectDelimiter, detectHeaderRow, extractRows, findDuplicate, guessMapping, matchOccurrence, parseCSV, type ColumnInfo, type ColumnMapping, type ParsedRow } from '../lib/csv';
 import { suggestCategory, labelKey } from '../lib/categorize';
 import { occurrencesForMonth, paidIndex, type Occurrence } from '../lib/recurring';
 import { fmtDate, monthOf } from '../lib/dates';
@@ -42,6 +43,33 @@ interface Summary {
 }
 
 const REFUND_RE = /(rembours|retour|gutschrift|r[üu]ckerstattung|refund|storno|annulation|avoir|cr[ée]dit note|restitution)/i;
+
+/** « Colonne 3 » ou « 3 · Débit » : le numéro aide à retrouver la colonne dans l'aperçu. */
+function colTitle(c: ColumnInfo): string {
+  return /^Colonne \d+$/.test(c.name) ? c.name : `${c.index + 1} · ${c.name}`;
+}
+
+/** Menu de choix d'une colonne, sur toute la largeur, avec l'exemple du contenu choisi en dessous. */
+function ColSelect({ cols, label, help, value, onChange, options }: { cols: ColumnInfo[]; label: string; help: string; value: number; onChange: (v: number) => void; options: ComponentChildren }) {
+  const c = cols.find((x) => x.index === value);
+  return (
+    <label class="field">
+      <span class="lab">{label}</span>
+      <select class="input" value={value} onChange={(e) => onChange(+(e.target as HTMLSelectElement).value)}>
+        {options}
+      </select>
+      <span class="hint">
+        {c ? (
+          <>
+            Contenu : <b style={{ color: 'var(--ink)' }}>{c.sample || '(vide)'}</b> · {help}
+          </>
+        ) : (
+          help
+        )}
+      </span>
+    </label>
+  );
+}
 
 function Steps({ step }: { step: Step }) {
   const order: Step[] = ['file', 'map', 'review', 'confirm', 'done'];
@@ -80,7 +108,7 @@ export function ImportScreen() {
   function startMapping(r: string[][]) {
     const h = detectHeaderRow(r);
     setHeaderRow(h);
-    setMap(guessMapping(analyzeColumns(h >= 0 ? r[h] : null, r.slice(h + 1))));
+    setMap(guessMapping(analyzeColumns(h >= 0 ? r[h] : null, r.slice(h + 1)), r.slice(h + 1)));
     setStep('map');
   }
 
@@ -136,7 +164,7 @@ export function ImportScreen() {
   function changeHeader(h: number) {
     const nh = Math.max(-1, Math.min(rows.length - 2, h));
     setHeaderRow(nh);
-    setMap(guessMapping(analyzeColumns(nh >= 0 ? rows[nh] : null, rows.slice(nh + 1))));
+    setMap(guessMapping(analyzeColumns(nh >= 0 ? rows[nh] : null, rows.slice(nh + 1)), rows.slice(nh + 1)));
   }
 
   function buildReviews() {
@@ -226,8 +254,8 @@ export function ImportScreen() {
       {allowNone && <option value={-1}>Aucune</option>}
       {cols.map((c) => (
         <option value={c.index} disabled={c.sensitive}>
-          {c.name}
-          {c.sensitive ? ' (numéros — non importée)' : ''}
+          {colTitle(c)}
+          {c.sensitive ? ' (numéros — non importée)' : c.sample ? ` — ex. ${c.sample}` : ' — vide'}
         </option>
       ))}
     </>
@@ -292,13 +320,23 @@ export function ImportScreen() {
               {pdf.pages} page{pdf.pages > 1 ? 's' : ''}, {pdf.txLines} ligne{pdf.txLines > 1 ? 's' : ''} d’opération repérée{pdf.txLines > 1 ? 's' : ''}. Vérifiez les colonnes ci-dessous : <b>Date</b>, <b>Libellé</b>, <b>Débit</b> / <b>Crédit</b> (ou Montant). Ignorez la colonne <b>Solde</b>.
             </div>
           )}
-          <div class="table-wrap" style={{ maxHeight: 230 }}>
+          <p class="small muted" style={{ margin: '0 0 6px' }}>
+            Les colonnes sont numérotées de gauche à droite. Faites glisser l’aperçu pour voir les suivantes.
+          </p>
+          <div class="table-wrap" style={{ maxHeight: 260 }}>
             <table>
+              <thead>
+                <tr class="hl">
+                  {cols.map((c) => (
+                    <th>{colTitle(c)}</th>
+                  ))}
+                </tr>
+              </thead>
               <tbody>
-                {rows.slice(Math.max(0, headerRow), Math.max(0, headerRow) + 8).map((r, i) => (
-                  <tr class={i === 0 && headerRow >= 0 ? 'hl' : ''}>
-                    {r.map((c, k) => (
-                      <td>{cols[k]?.sensitive && !(i === 0 && headerRow >= 0) ? '•••• masqué' : c}</td>
+                {rows.slice(headerRow + 1, headerRow + 9).map((r) => (
+                  <tr>
+                    {cols.map((c) => (
+                      <td>{c.sensitive && r[c.index] ? '•••• masqué' : r[c.index] ?? ''}</td>
                     ))}
                   </tr>
                 ))}
@@ -307,7 +345,7 @@ export function ImportScreen() {
           </div>
           <div class="row" style={{ marginTop: 10 }}>
             <span class="grow small">
-              Ligne d’en-tête : <b>{headerRow >= 0 ? `ligne ${headerRow + 1}` : 'aucune'}</b>
+              Ligne des titres : <b>{headerRow >= 0 ? `ligne ${headerRow + 1}` : 'aucune (colonnes numérotées)'}</b>
             </span>
             <button class="btn sm" onClick={() => changeHeader(headerRow - 1)} aria-label="En-tête plus haut">
               −
@@ -321,70 +359,37 @@ export function ImportScreen() {
               Colonne(s) avec numéros de compte ou de carte détectée(s) : <b>{cols.filter((c) => c.sensitive).map((c) => c.name).join(', ')}</b>. Elles ne seront ni importées ni conservées.
             </div>
           )}
-          <div class="grid2">
-            <label class="field">
-              <span class="lab">Date</span>
-              <select class="input" value={map.date} onChange={(e) => set({ date: +(e.target as HTMLSelectElement).value })}>
-                {colOptions()}
-              </select>
-            </label>
-            <label class="field">
-              <span class="lab">Format des dates</span>
-              <select class="input" value={map.dateOrder} onChange={(e) => set({ dateOrder: (e.target as HTMLSelectElement).value as ColumnMapping['dateOrder'] })}>
-                <option value="auto">Automatique</option>
-                <option value="dmy">jj.mm.aaaa</option>
-                <option value="mdy">mm/jj/aaaa</option>
-                <option value="ymd">aaaa-mm-jj</option>
-              </select>
-            </label>
-          </div>
-          <div class="grid2">
-            <label class="field">
-              <span class="lab">Libellé</span>
-              <select class="input" value={map.label} onChange={(e) => set({ label: +(e.target as HTMLSelectElement).value })}>
-                {colOptions()}
-              </select>
-            </label>
-            <label class="field">
-              <span class="lab">Libellé (suite)</span>
-              <select class="input" value={map.label2} onChange={(e) => set({ label2: +(e.target as HTMLSelectElement).value })}>
-                {colOptions(true)}
-              </select>
-            </label>
-          </div>
+          <ColSelect cols={cols} label="Date de l’opération" help="La colonne qui contient les dates (pas le solde)." value={map.date} onChange={(v) => set({ date: v })} options={colOptions()} />
+          <ColSelect cols={cols} label="Libellé" help="Le texte qui décrit l’opération (magasin, bénéficiaire…)." value={map.label} onChange={(v) => set({ label: v })} options={colOptions()} />
+          <ColSelect cols={cols} label="Libellé (suite) — facultatif" help="Une 2ᵉ colonne de texte à ajouter au libellé, sinon « Aucune »." value={map.label2} onChange={(v) => set({ label2: v })} options={colOptions(true)} />
           <div class="field">
             <span class="lab">Montants</span>
             <Seg value={map.mode} onChange={(m) => set({ mode: m })} options={[{ value: 'single', label: 'Une colonne' }, { value: 'split', label: 'Débit / Crédit' }]} />
+            <span class="hint">« Débit / Crédit » si votre relevé a deux colonnes de montants (sorties et entrées) ; sinon « Une colonne ».</span>
           </div>
           {map.mode === 'single' ? (
             <>
-              <label class="field">
-                <span class="lab">Colonne du montant</span>
-                <select class="input" value={map.amount} onChange={(e) => set({ amount: +(e.target as HTMLSelectElement).value })}>
-                  {colOptions()}
-                </select>
-              </label>
+              <ColSelect cols={cols} label="Colonne du montant" help="Le montant de chaque opération — pas le solde du compte." value={map.amount} onChange={(v) => set({ amount: v })} options={colOptions()} />
               <div class="field">
                 <span class="lab">Dans ce fichier, les dépenses sont…</span>
                 <Seg value={map.sign} onChange={(v) => set({ sign: v })} options={[{ value: 'negative', label: 'négatives (−)' }, { value: 'positive', label: 'positives' }]} />
               </div>
             </>
           ) : (
-            <div class="grid2">
-              <label class="field">
-                <span class="lab">Débit (dépenses)</span>
-                <select class="input" value={map.debit} onChange={(e) => set({ debit: +(e.target as HTMLSelectElement).value })}>
-                  {colOptions(true)}
-                </select>
-              </label>
-              <label class="field">
-                <span class="lab">Crédit (entrées)</span>
-                <select class="input" value={map.credit} onChange={(e) => set({ credit: +(e.target as HTMLSelectElement).value })}>
-                  {colOptions(true)}
-                </select>
-              </label>
-            </div>
+            <>
+              <ColSelect cols={cols} label="Débit (dépenses)" help="Les montants qui sortent du compte." value={map.debit} onChange={(v) => set({ debit: v })} options={colOptions(true)} />
+              <ColSelect cols={cols} label="Crédit (entrées)" help="Les montants qui entrent sur le compte." value={map.credit} onChange={(v) => set({ credit: v })} options={colOptions(true)} />
+            </>
           )}
+          <label class="field">
+            <span class="lab">Format des dates</span>
+            <select class="input" value={map.dateOrder} onChange={(e) => set({ dateOrder: (e.target as HTMLSelectElement).value as ColumnMapping['dateOrder'] })}>
+              <option value="auto">Automatique (recommandé)</option>
+              <option value="dmy">jj.mm.aaaa</option>
+              <option value="mdy">mm/jj/aaaa</option>
+              <option value="ymd">aaaa-mm-jj</option>
+            </select>
+          </label>
           {!pdf && (
             <label class="field">
               <span class="lab">Séparateur</span>

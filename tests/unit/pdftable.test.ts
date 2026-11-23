@@ -62,3 +62,33 @@ describe('relevé PDF → tableau', () => {
     expect(yearHint([item('Relevé du 01.09.2026 au 30.09.2026', 0, 0), item('2025', 0, 0)], 2020)).toBe(2026);
   });
 });
+
+describe('relevé sans ligne de titres', () => {
+  it('Débit / Crédit / Solde reconnus par leur contenu', () => {
+    const rows = [
+      ['01.10.2026', 'Ordre permanent Régie Dupont', '01.10.2026', '1500.00', '', '850.40'],
+      ['03.10.2026', 'Achat Migros Genève', '03.10.2026', '45.60', '', '804.80'],
+      ['12.10.2026', 'Achat Coop City', '12.10.2026', '88.10', '', '716.70'],
+      ['25.10.2026', 'Salaire Exemple Sàrl', '25.10.2026', '', '5200.00', '5916.70'],
+      ['28.10.2026', 'Swisscom', '28.10.2026', '61.30', '', '5855.40'],
+    ];
+    const cols = analyzeColumns(null, rows);
+    expect(cols[3].name).toBe('Colonne 4');
+    expect(cols[3].sample).toBe('1500.00');
+    const map = guessMapping(cols, rows);
+    expect(map).toMatchObject({ date: 0, label: 1, mode: 'split', debit: 3, credit: 4 });
+    const parsed = extractRows(rows, -1, map, { pdf: true }).filter((r) => r.ok);
+    expect(parsed.map((r) => [r.amount, r.credit])).toEqual([[150000, false], [4560, false], [8810, false], [520000, true], [6130, false]]);
+  });
+
+  it('montant unique signé + solde', () => {
+    const rows = [
+      ['02/10/2026', 'PRLV LOYER CASA', '-3 500,00', '12 000,00'],
+      ['05/10/2026', 'PAIEMENT CB MARJANE', '-392,35', '11 607,65'],
+      ['20/10/2026', 'VIREMENT RECU', '8 000,00', '19 607,65'],
+      ['22/10/2026', 'RETRAIT GAB', '-1 000,00', '18 607,65'],
+    ];
+    const map = guessMapping(analyzeColumns(null, rows), rows);
+    expect(map).toMatchObject({ date: 0, label: 1, mode: 'single', amount: 2, sign: 'negative' });
+  });
+});

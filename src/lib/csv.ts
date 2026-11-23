@@ -81,7 +81,7 @@ export function parseCSV(text: string, delimiter: string): string[][] {
   return rows.filter((r) => r.some((f) => f !== ''));
 }
 
-const HEADER_WORDS = /(date|datum|libell|description|texte|text|montant|betrag|amount|d[ée]bit|cr[ée]dit|belastung|gutschrift|valeur|valuta|solde|saldo|op[ée]ration|buchung|motif|r[ée]f[ée]rence|devise|währung|currency)/i;
+const HEADER_WORDS = /(date|datum|libell|description|texte|text|montant|betrag|amount|d[ée]bit|cr[ée]dit|belastung|gutschrift|valeur|valuta|solde|saldo|balance|op[ée]ration|buchung|booking|motif|r[ée]f[ée]rence|devise|währung|currency|d[ée]signation|nature)/i;
 
 export function detectHeaderRow(rows: string[][]): number {
   const counts = rows.slice(0, 40).map((r) => r.length);
@@ -95,8 +95,13 @@ export function detectHeaderRow(rows: string[][]): number {
     const r = rows[i];
     if (wide(r) && !hasDate(r) && r.filter((f) => HEADER_WORDS.test(f)).length >= 2) return i;
   }
-  // 2) Sinon : la ligne qui précède la première ligne datée (pas d'en-tête explicite).
-  for (let i = 0; i < Math.min(rows.length, 40); i++) if (wide(rows[i]) && hasDate(rows[i])) return Math.max(-1, i - 1);
+  // 2) Sinon : la ligne qui précède la première ligne datée, si elle ressemble à des titres
+  //    (plusieurs cellules, sans date). Un simple titre de document (« Extrait de compte ») n'en est pas un.
+  for (let i = 0; i < Math.min(rows.length, 40); i++) {
+    if (!wide(rows[i]) || !hasDate(rows[i])) continue;
+    const prev = rows[i - 1];
+    return prev && wide(prev) && !hasDate(prev) ? i - 1 : -1;
+  }
   return 0;
 }
 
@@ -120,11 +125,21 @@ export interface ColumnInfo {
   amountRatio: number;
   sensitive: boolean;
   avgLen: number;
+  /** Part des lignes où la colonne est remplie */
+  fill: number;
+  /** Part des montants négatifs (colonne de montants) */
+  negRatio: number;
+  /** Exemple de contenu, pour aider à reconnaître la colonne */
+  sample: string;
 }
 
 export function analyzeColumns(header: string[] | null, data: string[][]): ColumnInfo[] {
   const width = Math.max(header?.length ?? 0, ...data.slice(0, 50).map((r) => r.length));
-  const sample = data.slice(0, 60);
+  // Statistiques calculées sur les lignes d'opérations (celles qui contiennent une date) quand il y en a :
+  // titres de document, soldes et totaux ne faussent ni les exemples ni les taux de remplissage.
+  const firstRows = data.slice(0, 120);
+  const txRows = firstRows.filter((r) => r.some((v) => parseUserDate(v) !== null));
+  const sample = (txRows.length >= 2 ? txRows : firstRows).slice(0, 60);
   const cols: ColumnInfo[] = [];
   for (let i = 0; i < width; i++) {
     const vals = sample.map((r) => r[i] ?? '').filter((v) => v !== '');
@@ -133,19 +148,29 @@ export function analyzeColumns(header: string[] | null, data: string[][]): Colum
     const amountRatio = vals.filter((v) => /\d/.test(v) && parseAmount(v) !== null && !parseUserDate(v)).length / n;
     const sensitiveVals = vals.filter((v) => detectSensitive(v).some((h) => h.kind !== 'id')).length / n;
     const nameSensitive = /(iban|compte|konto|account|carte|karte|card|num[ée]ro|rib)/i.test(header?.[i] ?? '');
+    const amounts = vals.map((v) => (parseUserDate(v) ? null : parseAmount(v))).filter((a): a is number => a !== null);
+    const sensitive = (nameSensitive && sensitiveVals > 0.2) || sensitiveVals > 0.6;
+    const ex = vals.find((v) => v.trim().length > 1) ?? vals[0] ?? '';
     cols.push({
       index: i,
       name: header?.[i] || `Colonne ${i + 1}`,
       dateRatio,
       amountRatio,
-      sensitive: (nameSensitive && sensitiveVals > 0.2) || sensitiveVals > 0.6,
+      sensitive,
       avgLen: vals.reduce((s, v) => s + v.length, 0) / n,
+      fill: sample.length ? vals.length / sample.length : 0,
+      negRatio: amounts.length ? amounts.filter((a) => a < 0).length / amounts.length : 0,
+      sample: sensitive ? '' : ex.length > 24 ? ex.slice(0, 23) + '…' : ex,
     });
   }
   return cols;
 }
 
-export function guessMapping(cols: ColumnInfo[]): ColumnMapping {
+/**
+ * Devine les colonnes : d'abord par leurs titres, sinon par leur contenu
+ * (dates, textes longs, paire Débit/Crédit qui ne sont jamais remplies sur la même ligne, Solde rempli partout).
+ */
+export function guessMapping(cols: ColumnInfo[], data: string[][] = []): ColumnMapping {
   const used = new Set<number>();
   const by = (...res: RegExp[]) => {
     for (const re of res) {
@@ -155,18 +180,59 @@ export function guessMapping(cols: ColumnInfo[]): ColumnMapping {
     return -1;
   };
   let date = by(/^(date|datum)$/i, /(date|datum|jour)(?!.*valeur)/i, /date|datum|valuta|valeur/i);
-  if (date < 0) date = [...cols].sort((a, b) => b.dateRatio - a.dateRatio)[0]?.index ?? 0;
+  if (date < 0) date = [...cols].sort((a, b) => b.dateRatio - a.dateRatio || a.index - b.index)[0]?.index ?? 0;
   used.add(date);
-  let label = by(/libell/i, /(description|texte|text|buchungstext|motif|bezeichnung|communication)/i, /(d[ée]tail|op[ée]ration|avis)/i);
-  if (label < 0) label = [...cols].filter((c) => c.index !== date && !c.sensitive && c.amountRatio < 0.5).sort((a, b) => b.avgLen - a.avgLen)[0]?.index ?? 1;
-  const debit = by(/(d[ée]bit|belastung|lastschrift|sortie|withdraw)/i);
-  const credit = by(/(cr[ée]dit|gutschrift|entr[ée]e|deposit)/i);
+  let label = by(/libell/i, /(description|texte|text|buchungstext|motif|bezeichnung|communication|d[ée]signation)/i, /(d[ée]tail|op[ée]ration|avis|nature)/i);
+  if (label < 0) label = [...cols].filter((c) => c.index !== date && !c.sensitive && c.amountRatio < 0.5 && c.dateRatio < 0.5).sort((a, b) => b.avgLen - a.avgLen)[0]?.index ?? 1;
+  used.add(label);
+  let debit = by(/(d[ée]bit|belastung|lastschrift|sortie|withdraw)/i);
+  let credit = by(/(cr[ée]dit|gutschrift|entr[ée]e|deposit)/i);
   let amount = by(/(montant|betrag|amount|somme)/i);
-  if (amount < 0) {
-    amount = [...cols].filter((c) => c.index !== date && !/solde|saldo|balance/i.test(c.name)).sort((a, b) => b.amountRatio - a.amountRatio)[0]?.index ?? -1;
+  let mode: ColumnMapping['mode'] = debit >= 0 && credit >= 0 && debit !== credit ? 'split' : 'single';
+
+  if (mode === 'single' && amount < 0) {
+    // Sans titres : on raisonne sur le contenu des colonnes de montants.
+    const isBalanceName = (c: ColumnInfo) => /solde|saldo|balance/i.test(c.name);
+    const numeric = cols.filter((c) => !c.sensitive && c.index !== date && c.index !== label && c.amountRatio >= 0.8 && c.fill > 0);
+    let balance = numeric.find(isBalanceName);
+    if (!balance && numeric.length >= 2) {
+      const last = numeric[numeric.length - 1];
+      if (last.fill >= 0.85) balance = last; // Solde : rempli sur presque toutes les lignes, en dernière colonne
+    }
+    const cand = numeric.filter((c) => c !== balance && !isBalanceName(c));
+    const rows = data.filter((r) => parseUserDate(r[date] ?? '') !== null);
+    let best: { a: ColumnInfo; b: ColumnInfo; cover: number } | null = null;
+    if (rows.length) {
+      for (let i = 0; i < cand.length; i++)
+        for (let j = i + 1; j < cand.length; j++) {
+          const a = cand[i];
+          const b = cand[j];
+          let both = 0;
+          let either = 0;
+          for (const r of rows) {
+            const fa = (r[a.index] ?? '') !== '';
+            const fb = (r[b.index] ?? '') !== '';
+            if (fa && fb) both++;
+            if (fa || fb) either++;
+          }
+          const cover = either / rows.length;
+          if (either && both / either <= 0.05 && cover >= 0.7 && (!best || cover > best.cover)) best = { a, b, cover };
+        }
+    }
+    if (best) {
+      // Débit = la colonne la plus remplie (il y a en général plus de dépenses que d'entrées).
+      const [d, c] = best.a.fill >= best.b.fill ? [best.a, best.b] : [best.b, best.a];
+      debit = d.index;
+      credit = c.index;
+      mode = 'split';
+    } else {
+      amount = [...(cand.length ? cand : numeric)].sort((a, b) => b.fill - a.fill || b.amountRatio - a.amountRatio)[0]?.index ?? -1;
+    }
   }
-  const mode: ColumnMapping['mode'] = debit >= 0 && credit >= 0 && debit !== credit ? 'split' : 'single';
-  return { date, label, label2: -1, mode, amount, debit, credit, sign: 'negative', dateOrder: 'auto' };
+  const amountCol = cols.find((c) => c.index === amount);
+  // Une colonne unique : les dépenses sont négatives si une bonne part des montants l'est.
+  const sign: ColumnMapping['sign'] = amountCol && amountCol.negRatio < 0.3 && amountCol.fill > 0 ? 'positive' : 'negative';
+  return { date, label, label2: -1, mode, amount, debit, credit, sign, dateOrder: 'auto' };
 }
 
 /** Ordre des dates : jour avant mois sauf preuve du contraire dans le fichier. */

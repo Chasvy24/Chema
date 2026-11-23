@@ -93,6 +93,26 @@ function moroccanHtml(now) {
     </body></html>`;
 }
 
+/** Relevé sans ligne de titres : Date | Libellé | Montant signé | Solde */
+function headerlessHtml(now) {
+  let bal = 1800;
+  const ops = [
+    [-1, 1, 'Ordre permanent Régie Dupont SA', -1500],
+    [-1, 4, 'Achat Migros Genève', -45.6],
+    [-1, 15, 'Spotify Stockholm', -12.95],
+    [-1, 25, 'Salaire Exemple Sàrl', 5200],
+    [-1, 28, 'Swisscom (Schweiz) AG', -61.3],
+  ];
+  const rows = ops
+    .map(([o, day, label, amt]) => {
+      bal += amt;
+      const d = monthDate(now, o, day);
+      return `<tr><td>${ch(d)}</td><td>${label}</td><td class="r">${amt < 0 ? '-' : ''}${swissAmt(Math.abs(amt))}</td><td class="r">${swissAmt(bal)}</td></tr>`;
+    })
+    .join('');
+  return `<html><head><meta charset="utf-8"><style>${CSS}</style></head><body><h1>Extrait de compte</h1><table><tbody>${rows}</tbody></table></body></html>`;
+}
+
 /** Crée les PDF dans `dir` et renvoie leurs chemins. */
 export async function makeStatements(browser, dir, now = new Date()) {
   const page = await browser.newPage();
@@ -110,6 +130,9 @@ export async function makeStatements(browser, dir, now = new Date()) {
   await page.setContent(moroccanHtml(now));
   const morocco = `${dir}releve-ma-2-mois.pdf`;
   await page.pdf({ path: morocco, format: 'A5', margin: { top: '12mm', bottom: '12mm', left: '10mm', right: '10mm' } });
+  await page.setContent(headerlessHtml(now));
+  const headerless = `${dir}releve-sans-titres.pdf`;
+  await page.pdf({ path: headerless, format: 'A4', margin: { top: '15mm', bottom: '15mm', left: '12mm', right: '12mm' } });
   await page.close();
-  return { swiss, morocco };
+  return { swiss, morocco, headerless };
 }

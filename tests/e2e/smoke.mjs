@@ -590,6 +590,21 @@ await step('Import d’un relevé PDF marocain (MAD, plusieurs pages)', async ()
   const review = (await p3.locator('main').innerText()).replace(/[\u202f\u00a0]/g, ' ');
   expect(review.includes('PRLV LOYER APPARTEMENT CASA') && review.includes('+8 000.00'), 'libellés MA : ' + review.slice(0, 300));
 });
+await step('Relevé PDF sans ligne de titres : colonnes numérotées, exemples et devinées', async () => {
+  await p3.goto(URL_ + '#/');
+  await p3.waitForTimeout(200);
+  await p3.goto(URL_ + '#/budget/import');
+  await p3.getByRole('button', { name: 'CHF · Suisse' }).click();
+  await p3.locator('input[type=file]').setInputFiles(pdfs.headerless);
+  await p3.getByText('Aperçu et colonnes').waitFor({ timeout: 30000 });
+  const info = (await p3.locator('main').innerText()).replace(/[\u202f\u00a0]/g, ' ');
+  expect(info.includes('5 opération(s) lisible(s)'), 'lecture : ' + info.slice(0, 300));
+  expect(/Exemple : .* Ordre permanent Régie Dupont SA · −1 500\.00 CHF/.test(info), 'exemple avec signe − : ' + info.slice(0, 500));
+  const opts = await p3.locator('main select').first().locator('option').allInnerTexts();
+  expect(opts.some((o) => /Colonne 1 — ex\. \d{2}\.\d{2}\.\d{4}/.test(o)), 'exemples dans les menus : ' + opts.join(' | '));
+  expect((await p3.locator('table thead th').allInnerTexts()).join('|').includes('Colonne 1'), 'en-têtes numérotés');
+  await p3.screenshot({ path: `${SHOTS}27-import-sans-titres.png` });
+});
 await ctx3.close();
 
 await browser.close();
