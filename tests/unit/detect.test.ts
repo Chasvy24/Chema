@@ -35,6 +35,10 @@ const sample: Tx[] = [
   tx('2026-10-05', 'RETRAIT BANCOMAT GENEVE', 20000),
   // Achat ponctuel
   tx('2026-09-14', 'IKEA VERNIER', 34990),
+  // Une grosse course par mois le même jour, montant variable → pas une charge fixe
+  tx('2026-08-12', 'ACHAT CARTE COOP CITY', 9410),
+  tx('2026-09-12', 'ACHAT CARTE COOP CITY', 9210),
+  tx('2026-10-12', 'ACHAT CARTE COOP CITY', 9010),
 ];
 
 describe('détection des charges fixes', () => {
@@ -78,6 +82,7 @@ describe('détection des charges fixes', () => {
     expect(by('bancomat')).toBeUndefined();
     expect(by('ikea')).toBeUndefined();
     expect(by('netflix')).toBeUndefined();
+    expect(by('coop')).toBeUndefined();
     expect(found).toHaveLength(3);
   });
 

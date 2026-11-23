@@ -18,6 +18,9 @@ const NOISE = new Set([
 
 // Retraits d'espèces : réguliers parfois, mais ce ne sont pas des charges fixes.
 const EXCLUDE = /\b(retrait|gab|atm|bancomat|geldautomat|cash|withdrawal)\b/;
+// Supermarchés : des courses peuvent tomber chaque mois à la même date, ce n'est pas une charge fixe
+// (sauf montant strictement identique, ex. abonnement de paniers).
+const GROCERY = /\b(migros|coop|denner|lidl|aldi|spar|volg|manor|marjane|carrefour|bim|aswak|acima|label vie|supermarche|epicerie)\b/;
 
 /** Clé du bénéficiaire : deux premiers mots significatifs, sans chiffres. */
 export function merchantKey(label: string): string {
@@ -159,6 +162,9 @@ export function detectRecurring(txs: Tx[], recurring: Recurring[], currency: Cur
     const max = Math.max(...amounts);
     const fixed = max - min <= Math.max(med * 0.02, 100);
     if (!fixed && (max - min) / med > 0.6) continue;
+    const cats0 = list.map((t) => t.categoryId).filter(Boolean);
+    const groceries = GROCERY.test(` ${normalize(list[0].label)} `) || (cats0.length > 0 && cats0.filter((c) => c === 'alimentation').length >= cats0.length / 2);
+    if (groceries && !fixed) continue;
     const latest = matches[matches.length - 1].amount;
     const amount = fixed ? latest : Math.round(amounts.reduce((s, a) => s + a, 0) / amounts.length);
 

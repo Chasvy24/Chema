@@ -117,10 +117,10 @@ function DetectBody({ cur, setCur }: { cur: Currency; setCur: (c: Currency) => v
           <Empty
             icon={<FileUp size={26} />}
             title="Importez d’abord vos relevés"
-            text={`Chema a besoin d’au moins 2 mois d’opérations ${cur} (idéalement 3 à 6) pour repérer les paiements qui reviennent. ${cov ? `Actuellement : ${cov.count} opération(s) sur ${cov.months} mois.` : 'Aucune opération pour l’instant.'}`}
+            text={`Chema a besoin d’au moins 2 mois d’opérations ${cur} (idéalement 3 à 6) pour repérer les paiements qui reviennent. Importez vos relevés PDF ou CSV. ${cov ? `Actuellement : ${cov.count} opération(s) sur ${cov.months} mois.` : 'Aucune opération pour l’instant.'}`}
           >
             <button class="btn primary" onClick={() => go('/budget/import')}>
-              Importer un relevé CSV
+              Importer des relevés (PDF ou CSV)
             </button>
           </Empty>
         </div>
@@ -162,7 +162,7 @@ function DetectBody({ cur, setCur }: { cur: Currency; setCur: (c: Currency) => v
         </>
       )}
       <p class="small muted" style={{ marginTop: 14 }}>
-        Astuce : importez un relevé par compte (CHF ou MAD) couvrant plusieurs mois. Les achats fréquents (courses…), les retraits d’espèces et les abonnements arrêtés ne sont pas proposés.
+        Astuce : importez les relevés de chaque compte (CHF ou MAD) sur plusieurs mois — plusieurs PDF peuvent être choisis d’un coup. Les achats fréquents (courses…), les retraits d’espèces et les abonnements arrêtés ne sont pas proposés.
       </p>
     </>
   );

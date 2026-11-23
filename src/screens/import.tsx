@@ -12,7 +12,9 @@ import { fmtDate, monthOf } from '../lib/dates';
 import { fmtMoney, type Currency } from '../lib/money';
 import type { Tx } from '../db/schema';
 import { go, goBack } from '../ui/router';
-import { toast } from '../ui/feedback';
+import { promptText, toast } from '../ui/feedback';
+import { buildTable, groupLines, yearHint, type LineMeta, type PdfTextItem } from '../lib/pdftable';
+import { readPdfText } from '../services/pdf';
 
 type Step = 'file' | 'map' | 'review' | 'confirm' | 'done';
 
@@ -35,6 +37,7 @@ interface Summary {
   dupAdded: number;
   unchecked: number;
   unreadable: number;
+  ignoredLines: number;
   masked: number;
 }
 
@@ -63,13 +66,59 @@ export function ImportScreen() {
   const [reviews, setReviews] = useState<Review[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [busy, setBusy] = useState(false);
+  const [pdf, setPdf] = useState<{ rows: string[][]; meta: LineMeta[]; year: number; files: number; pages: number; txLines: number } | null>(null);
+  const [reading, setReading] = useState('');
 
-  const rows = useMemo(() => (text ? parseCSV(text, delim) : []), [text, delim]);
+  const rows = useMemo(() => (pdf ? pdf.rows : text ? parseCSV(text, delim) : []), [pdf, text, delim]);
   const header = headerRow >= 0 ? rows[headerRow] ?? null : null;
   const cols = useMemo(() => analyzeColumns(header, rows.slice(headerRow + 1)), [rows, headerRow]);
-  const parsed = useMemo(() => (map && rows.length ? extractRows(rows, headerRow, map) : []), [rows, headerRow, map]);
+  const parsed = useMemo(() => (map && rows.length ? extractRows(rows, headerRow, map, pdf ? { pdf: true, yearHint: pdf.year, lineMeta: pdf.meta } : {}) : []), [rows, headerRow, map, pdf]);
   const okRows = parsed.filter((p) => p.ok);
-  const badRows = parsed.filter((p) => !p.ok);
+  const badRows = parsed.filter((p) => !p.ok && !p.ignored);
+  const ignoredRows = parsed.filter((p) => p.ignored);
+
+  function startMapping(r: string[][]) {
+    const h = detectHeaderRow(r);
+    setHeaderRow(h);
+    setMap(guessMapping(analyzeColumns(h >= 0 ? r[h] : null, r.slice(h + 1))));
+    setStep('map');
+  }
+
+  async function onFiles(list: FileList | null) {
+    const files = Array.from(list ?? []);
+    if (!files.length) return;
+    const pdfs = files.filter((f) => f.type === 'application/pdf' || /\.pdf$/i.test(f.name));
+    if (pdfs.length) {
+      if (pdfs.length !== files.length) toast('Seuls les fichiers PDF ont été pris en compte (un import = un seul type de fichier).', { tone: 'warn' });
+      return onPdfs(pdfs);
+    }
+    return onFile(files[0]);
+  }
+
+  async function onPdfs(files: File[]) {
+    if (files.some((f) => f.size > 25 * 1024 * 1024)) return toast('PDF trop volumineux (25 Mo max par fichier).', { tone: 'error' });
+    const items: PdfTextItem[] = [];
+    let pages = 0;
+    try {
+      // Ordre chronologique approximatif : par nom de fichier.
+      for (const [i, f] of [...files].sort((a, b) => a.name.localeCompare(b.name, 'fr', { numeric: true })).entries()) {
+        setReading(`Lecture de « ${f.name} » (${i + 1}/${files.length})…`);
+        const res = await readPdfText(f, (retry) => promptText(retry ? 'Mot de passe incorrect' : 'Relevé protégé', `« ${f.name} » est protégé par un mot de passe (souvent fourni par la banque). Il sert uniquement à ouvrir le fichier sur ce téléphone et n’est pas enregistré.`, 'Mot de passe du PDF', 'password'), pages);
+        items.push(...res.items);
+        pages += res.pages;
+      }
+    } catch (e) {
+      setReading('');
+      return toast((e as Error).message, { tone: 'error', duration: 9000 });
+    }
+    setReading('');
+    const table = buildTable(groupLines(items));
+    if (!table.txLines) return toast('Aucune ligne d’opération (date + montant) reconnue dans ce PDF. Essayez l’export CSV de votre banque.', { tone: 'error', duration: 8000 });
+    setText(null);
+    setPdf({ rows: table.rows, meta: table.meta, year: yearHint(items, new Date().getFullYear()), files: files.length, pages, txLines: table.txLines });
+    setFileName(files.length > 1 ? `${files.length} relevés PDF` : files[0].name);
+    startMapping(table.rows);
+  }
 
   async function onFile(f: File) {
     if (f.size > 15 * 1024 * 1024) return toast('Fichier trop volumineux pour un relevé (15 Mo max).', { tone: 'error' });
@@ -77,13 +126,11 @@ export function ImportScreen() {
     const d = detectDelimiter(t);
     const r = parseCSV(t, d);
     if (r.length < 2) return toast('Ce fichier ne ressemble pas à un relevé CSV lisible.', { tone: 'error' });
-    const h = detectHeaderRow(r);
+    setPdf(null);
     setText(t);
     setFileName(f.name);
     setDelim(d);
-    setHeaderRow(h);
-    setMap(guessMapping(analyzeColumns(h >= 0 ? r[h] : null, r.slice(h + 1))));
-    setStep('map');
+    startMapping(r);
   }
 
   function changeHeader(h: number) {
@@ -130,7 +177,7 @@ export function ImportScreen() {
     try {
       const changes: Change[] = [];
       const rules = { ...data.value.settings.labelRules };
-      let s: Summary = { expenses: 0, refunds: 0, incomes: 0, paidCharges: 0, dupSkipped: 0, dupAdded: 0, unchecked: 0, unreadable: badRows.length, masked: 0 };
+      let s: Summary = { expenses: 0, refunds: 0, incomes: 0, paidCharges: 0, dupSkipped: 0, dupAdded: 0, unchecked: 0, unreadable: badRows.length, ignoredLines: ignoredRows.length, masked: 0 };
       for (const r of reviews) {
         if (r.row.maskedCount) s.masked += r.row.maskedCount;
         if (!r.include) {
@@ -166,6 +213,7 @@ export function ImportScreen() {
       setSummary(s);
       // Le contenu brut du fichier n'est pas conservé.
       setText(null);
+      setPdf(null);
       setReviews([]);
       setStep('done');
     } finally {
@@ -191,30 +239,59 @@ export function ImportScreen() {
 
   return (
     <>
-      <TopBar title="Importer un relevé" sub={fileName || 'Fichier CSV de votre banque'} back={() => goBack('/budget')} />
+      <TopBar title="Importer un relevé" sub={fileName || 'CSV ou PDF de votre banque'} back={() => goBack('/budget')} />
       <Steps step={step} />
 
       {step === 'file' && (
         <>
           <div class="callout blue">
-            <ShieldCheck size={18} style={{ verticalAlign: '-3px' }} /> Téléchargez vous-même le relevé au format CSV depuis votre e-banking, puis choisissez-le ici. Aucune connexion à votre banque, aucun mot de passe demandé. Le fichier est lu sur le téléphone puis oublié : seules les opérations validées sont enregistrées.
+            <ShieldCheck size={18} style={{ verticalAlign: '-3px' }} /> Téléchargez vous-même votre relevé (CSV ou PDF) depuis votre e-banking, puis choisissez-le ici. Aucune connexion à votre banque. Le fichier est lu sur le téléphone puis oublié : seules les opérations validées sont enregistrées.
           </div>
           <div class="field">
             <span class="lab">Monnaie du compte</span>
             <CurrencySeg value={cur} onChange={setCur} />
             <span class="hint">Toutes les opérations iront dans le budget {cur}. Un relevé = une monnaie.</span>
           </div>
-          <label class="btn primary big block" style={{ marginTop: 18 }}>
-            <FileUp size={20} /> Choisir le fichier CSV
-            <input type="file" accept=".csv,text/csv,text/plain,application/vnd.ms-excel" class="sr-only" onChange={(e) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) onFile(f); }} />
+          <label class={`btn primary big block ${reading ? 'disabled' : ''}`} style={{ marginTop: 18 }}>
+            <FileUp size={20} /> {reading ? 'Lecture en cours…' : 'Choisir le(s) relevé(s)'}
+            <input
+              type="file"
+              multiple
+              disabled={!!reading}
+              accept=".csv,.pdf,text/csv,text/plain,application/pdf,application/vnd.ms-excel"
+              class="sr-only"
+              onChange={(e) => {
+                const input = e.target as HTMLInputElement;
+                onFiles(input.files).finally(() => (input.value = ''));
+              }}
+            />
           </label>
-          <p class="small muted">Formats acceptés : séparateurs « ; » « , » ou tabulation ; dates 31.12.2026, 31/12/2026, 2026-12-31… ; montants 1’234.50, 1 234,50, -12.50… Les colonnes contenant des numéros de compte ou de carte ne sont jamais importées.</p>
+          {reading && (
+            <p class="small" role="status" style={{ color: 'var(--blue-ink)' }}>
+              {reading}
+            </p>
+          )}
+          <ul class="small muted" style={{ paddingLeft: 18 }}>
+            <li>
+              <b>PDF</b> : vous pouvez sélectionner plusieurs relevés mensuels d’un coup (même compte). Les PDF scannés (images) ne sont pas lisibles.
+            </li>
+            <li>
+              <b>CSV</b> : séparateurs « ; » « , » ou tabulation ; dates 31.12.2026, 31/12/2026… ; montants 1’234.50, 1 234,50, -12.50…
+            </li>
+            <li>Les colonnes contenant des numéros de compte ou de carte ne sont jamais importées.</li>
+          </ul>
         </>
       )}
 
       {step === 'map' && map && (
         <>
           <h2 style={{ fontSize: 18, margin: '4px 0 8px' }}>Aperçu et colonnes</h2>
+          {pdf && (
+            <div class="callout blue" style={{ marginTop: 0, marginBottom: 10 }}>
+              PDF lu sur le téléphone : {pdf.files > 1 ? `${pdf.files} fichiers, ` : ''}
+              {pdf.pages} page{pdf.pages > 1 ? 's' : ''}, {pdf.txLines} ligne{pdf.txLines > 1 ? 's' : ''} d’opération repérée{pdf.txLines > 1 ? 's' : ''}. Vérifiez les colonnes ci-dessous : <b>Date</b>, <b>Libellé</b>, <b>Débit</b> / <b>Crédit</b> (ou Montant). Ignorez la colonne <b>Solde</b>.
+            </div>
+          )}
           <div class="table-wrap" style={{ maxHeight: 230 }}>
             <table>
               <tbody>
@@ -308,17 +385,20 @@ export function ImportScreen() {
               </label>
             </div>
           )}
-          <label class="field">
-            <span class="lab">Séparateur</span>
-            <select class="input" value={delim} onChange={(e) => setDelim((e.target as HTMLSelectElement).value)}>
-              <option value=";">Point-virgule ( ; )</option>
-              <option value=",">Virgule ( , )</option>
-              <option value={'\t'}>Tabulation</option>
-              <option value="|">Barre ( | )</option>
-            </select>
-          </label>
+          {!pdf && (
+            <label class="field">
+              <span class="lab">Séparateur</span>
+              <select class="input" value={delim} onChange={(e) => setDelim((e.target as HTMLSelectElement).value)}>
+                <option value=";">Point-virgule ( ; )</option>
+                <option value=",">Virgule ( , )</option>
+                <option value={'\t'}>Tabulation</option>
+                <option value="|">Barre ( | )</option>
+              </select>
+            </label>
+          )}
           <div class={`callout ${okRows.length ? 'blue' : 'red'}`}>
-            <b>{okRows.length}</b> opération(s) lisible(s){badRows.length ? `, ${badRows.length} ligne(s) non interprétable(s)` : ''}.
+            <b>{okRows.length}</b> opération(s) lisible(s){badRows.length ? `, ${badRows.length} ligne(s) non interprétable(s)` : ''}
+            {ignoredRows.length ? `, ${ignoredRows.length} ligne(s) écartée(s) (en-têtes, soldes, totaux)` : ''}.
             {okRows[0] && (
               <>
                 <br />
@@ -328,7 +408,7 @@ export function ImportScreen() {
             )}
           </div>
           <div class="row" style={{ marginTop: 14 }}>
-            <button class="btn" onClick={() => { setText(null); setStep('file'); }}>
+            <button class="btn" onClick={() => { setText(null); setPdf(null); setStep('file'); }}>
               Autre fichier
             </button>
             <button class="btn primary grow" disabled={!okRows.length} onClick={buildReviews}>
@@ -411,6 +491,21 @@ export function ImportScreen() {
               <p class="tiny muted">Elles seront ignorées. Si elles sont nombreuses, revenez à l’étape précédente pour corriger les colonnes ou le format des dates.</p>
             </div>
           )}
+          {ignoredRows.length > 0 && (
+            <details class="more section">
+              <summary>Lignes écartées du PDF ({ignoredRows.length}) — en-têtes, soldes, totaux</summary>
+              <div class="list" style={{ marginTop: 6 }}>
+                {ignoredRows.slice(0, 80).map((b) => (
+                  <div class="item" style={{ minHeight: 0, padding: '8px 12px' }}>
+                    <div class="main">
+                      <div class="meta" style={{ whiteSpace: 'normal' }}>{b.label || '—'}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p class="tiny muted">Si une vraie opération figure ici, revenez à l’étape précédente et vérifiez la colonne Date.</p>
+            </details>
+          )}
           <div class="row" style={{ marginTop: 14 }}>
             <button class="btn" onClick={() => setStep('map')}>
               Retour
@@ -478,8 +573,9 @@ export function ImportScreen() {
             <div class="kv"><span>Doublons non ajoutés</span><b>{summary.dupSkipped}</b></div>
             <div class="kv"><span>Lignes décochées</span><b>{summary.unchecked}</b></div>
             <div class="kv"><span>Lignes non interprétables</span><b>{summary.unreadable}</b></div>
+            {summary.ignoredLines > 0 && <div class="kv"><span>Lignes écartées (en-têtes, soldes, totaux)</span><b>{summary.ignoredLines}</b></div>}
             {summary.masked > 0 && <p class="small" style={{ marginBottom: 0 }}>{summary.masked} numéro(s) de compte/carte trouvé(s) dans les libellés ont été masqués.</p>}
-            <p class="small muted" style={{ marginBottom: 0 }}>Le fichier CSV n’a pas été conservé dans l’application. Vous pouvez le supprimer de votre téléphone.</p>
+            <p class="small muted" style={{ marginBottom: 0 }}>Le fichier n’a pas été conservé dans l’application. Vous pouvez le supprimer de votre téléphone.</p>
           </div>
           {(() => {
             const cov = coverage(data.value.txs, cur);

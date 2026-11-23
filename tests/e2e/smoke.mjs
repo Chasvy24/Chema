@@ -539,6 +539,59 @@ await step('Détection des charges fixes depuis 4 mois de relevé', async () => 
 });
 await ctx2.close();
 
+// ---------- Import de relevés PDF (plusieurs fichiers) puis détection ----------
+const { makeStatements } = await import('./pdf-fixtures.mjs');
+const pdfs = await makeStatements(browser, SHOTS, now);
+const ctx3 = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true, locale: 'fr-CH', timezoneId: 'Europe/Zurich' });
+const p3 = await ctx3.newPage();
+p3.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
+p3.on('console', (m) => m.type() === 'error' && errors.push('console: ' + m.text()));
+
+await step('Import de 3 relevés PDF suisses puis détection des charges fixes', async () => {
+  await p3.goto(URL_);
+  await p3.getByRole('dialog', { name: 'Bienvenue' }).waitFor();
+  await p3.locator('.sheet .btn.ghost', { hasText: 'Plus tard' }).click();
+  await p3.waitForTimeout(400);
+  await p3.goto(URL_ + '#/budget/import');
+  await p3.getByRole('button', { name: 'CHF · Suisse' }).click();
+  await p3.locator('input[type=file]').setInputFiles(pdfs.swiss);
+  await p3.getByText('Aperçu et colonnes').waitFor({ timeout: 30000 });
+  const info = await p3.locator('main').innerText();
+  expect(info.includes('PDF lu sur le téléphone : 3 fichiers') && info.includes('21 opération(s) lisible(s)'), 'lecture PDF : ' + info.slice(0, 400));
+  await p3.screenshot({ path: `${SHOTS}25-import-pdf.png` });
+  await p3.getByRole('button', { name: 'Vérifier les opérations' }).click();
+  await p3.getByText('Vérifiez chaque ligne').waitFor();
+  const review = (await p3.locator('main').innerText()).replace(/[\u202f\u00a0]/g, ' ');
+  expect(review.includes('Ordre permanent Régie Dupont SA, Loyer') && review.includes('+5 200.00'), 'libellés et crédit : ' + review.slice(0, 300));
+  await p3.getByRole('button', { name: /^Continuer/ }).click();
+  await p3.getByRole('button', { name: /^Importer \d+ opération/ }).click();
+  await p3.waitForTimeout(400);
+  const banner = p3.getByText(/charges? fixes? possibles?/);
+  await banner.waitFor();
+  await banner.click();
+  await p3.waitForTimeout(400);
+  const det = await p3.locator('main').innerText();
+  const names = (await p3.locator('input[aria-label="Nom de la charge"]').evaluateAll((els) => els.map((e) => e.value))).join(' | ');
+  expect(det.includes('3 charges fixes trouvées') && /R[ée]gie/.test(names) && names.includes('Swisscom') && names.includes('Spotify'), 'détection : ' + names);
+  await p3.screenshot({ path: `${SHOTS}26-detection-pdf.png` });
+});
+
+await step('Import d’un relevé PDF marocain (MAD, plusieurs pages)', async () => {
+  await p3.goto(URL_ + '#/');
+  await p3.waitForTimeout(200);
+  await p3.goto(URL_ + '#/budget/import');
+  await p3.getByRole('button', { name: 'MAD · Maroc' }).click();
+  await p3.locator('input[type=file]').setInputFiles(pdfs.morocco);
+  await p3.getByText('Aperçu et colonnes').waitFor({ timeout: 30000 });
+  const info = await p3.locator('main').innerText();
+  expect(info.includes('32 opération(s) lisible(s)'), 'lecture PDF MA : ' + info.slice(0, 300));
+  await p3.getByRole('button', { name: 'Vérifier les opérations' }).click();
+  await p3.getByText('Vérifiez chaque ligne').waitFor();
+  const review = (await p3.locator('main').innerText()).replace(/[\u202f\u00a0]/g, ' ');
+  expect(review.includes('PRLV LOYER APPARTEMENT CASA') && review.includes('+8 000.00'), 'libellés MA : ' + review.slice(0, 300));
+});
+await ctx3.close();
+
 await browser.close();
 server.kill();
 

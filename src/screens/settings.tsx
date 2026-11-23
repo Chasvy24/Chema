@@ -662,7 +662,7 @@ export function HelpScreen() {
         <h3>Charges fixes</h3>
         <p>Définies une fois, elles apparaissent chaque mois comme « prévues ». Touchez-en une pour la marquer payée (en ajustant le montant réel si la facture varie), l’ignorer ce mois-ci, ou modifier ses paramètres.</p>
         <p>
-          <b>Détection automatique :</b> importez 2 à 6 mois de relevés CSV, puis Budget › Charges fixes › icône loupe. Chema repère sur le téléphone les paiements qui reviennent (même bénéficiaire, même période du mois, montant stable ou proche) et vous les propose ; vous validez ou corrigez chacun. Les paiements déjà importés sont rattachés, sans double comptage.
+          <b>Détection automatique :</b> importez 2 à 6 mois de relevés (PDF ou CSV — plusieurs PDF mensuels peuvent être choisis d’un coup), puis Budget › Charges fixes › icône loupe. Chema repère sur le téléphone les paiements qui reviennent (même bénéficiaire, même période du mois, montant stable ou proche) et vous les propose ; vous validez ou corrigez chacun. Les paiements déjà importés sont rattachés, sans double comptage.
         </p>
         <h3>Échéances</h3>
         <p>Retards en rouge en haut de liste, échéances de demain surlignées en jaune. Terminer une échéance récurrente crée automatiquement la suivante. Pour un contrat, la date rappelée est la date limite de résiliation (fin − préavis).</p>

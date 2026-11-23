@@ -78,8 +78,8 @@ export function detectSensitive(text: string): SensitiveHit[] {
 }
 
 /** Remplace les numéros détectés par « [numéro masqué] ». */
-export function maskSensitive(text: string): { text: string; count: number } {
-  const hits = detectSensitive(text);
+export function maskSensitive(text: string, opts: { skip?: SensitiveKind[] } = {}): { text: string; count: number } {
+  const hits = detectSensitive(text).filter((h) => !opts.skip?.includes(h.kind));
   if (!hits.length) return { text, count: 0 };
   let out = '';
   let pos = 0;

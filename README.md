@@ -91,7 +91,13 @@ n'est pas en HTTPS — l'app s'affiche mais sans installation, hors ligne, chiff
   3 à 4 touches), *Ticket (photo)*, *Échéance*, *Document*.
 - **Accueil** : budget restant CHF et MAD côte à côte, prochaines échéances (demain en jaune,
   retards en rouge), objectifs d'épargne. Icônes en haut : recherche globale et réglages.
-- **Détection des charges fixes** : importez 2 à 6 mois de relevés CSV, puis Budget › Charges fixes ›
+- **Import de relevés PDF ou CSV** (Budget › icône import) : choisissez un CSV, ou **un ou plusieurs
+  PDF** (ex. les relevés mensuels des derniers mois, d'un coup). Le PDF est lu sur le téléphone avec
+  PDF.js (Mozilla, embarqué dans l'app) ; Chema reconstitue le tableau (Date, Libellé, Débit, Crédit,
+  Solde…), vous vérifiez les colonnes, puis chaque opération. En-têtes, soldes, totaux et pieds de page
+  sont écartés ; les libellés sur plusieurs lignes sont recollés. PDF protégé : le mot de passe est
+  demandé et sert seulement à ouvrir le fichier. PDF scanné (image) : illisible, utilisez le CSV.
+- **Détection des charges fixes** : importez 2 à 6 mois de relevés (PDF ou CSV), puis Budget › Charges fixes ›
   icône loupe (ou le bandeau proposé à la fin d'un import). Chema repère, sur le téléphone, les paiements
   qui reviennent au même bénéficiaire vers le même jour avec un montant stable ou proche (montant
   variable signalé), et les propose : vous cochez, corrigez nom/montant/jour/fréquence/catégorie, puis
@@ -162,7 +168,7 @@ après 30 jours.
 - Charges fixes : fréquence, jour, début/fin, suspension, montant réel par mois sans toucher à la
   base (ou mise à jour explicite de la base), mois ignoré, pas de double comptage ; **détection
   automatique depuis les relevés importés**, avec validation.
-- Import CSV : séparateurs/encodages/dates/montants courants, choix des colonnes, débit/crédit,
+- Import PDF (plusieurs fichiers, mot de passe, plusieurs pages) et CSV : séparateurs/encodages/dates/montants courants, choix des colonnes, débit/crédit,
   lignes illisibles signalées, catégories proposées (et apprises), doublons à confirmer, crédits
   classés en remboursement ou autre entrée, rapprochement avec les charges fixes, résumé final.
 - Remboursements liés à une dépense (corrigent la catégorie et le mois choisi, pas comptés comme
@@ -217,6 +223,11 @@ l'app sur le nouveau (même adresse ou non), restaurer. Réactiver ensuite le ve
 **Données sensibles.** La détection de numéros (IBAN, cartes, AVS, passeports) dans les textes et
 les CSV est une aide, pas une garantie. Les PDF ne peuvent pas être masqués dans l'app (astuce :
 capture d'écran de la page utile, puis masquage de l'image).
+
+**Relevés PDF.** La lecture dépend de la mise en page de chaque banque : elle a été testée sur des
+relevés fictifs de type suisse et marocain, pas sur ceux de votre banque. Vérifiez les colonnes
+proposées ; si un relevé est mal lu, l'export CSV de la banque reste la solution la plus fiable.
+Les PDF scannés (images) ne sont pas lisibles (pas d'OCR).
 
 **Lecture des tickets.** Pas d'OCR embarqué : la plupart des téléphones (dont Safari/iPhone)
 n'offrent pas de détection de texte locale au navigateur. La photo est conservée, la saisie reste

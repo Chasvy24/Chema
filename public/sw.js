@@ -44,7 +44,21 @@ self.addEventListener('fetch', (event) => {
     );
     return;
   }
-  event.respondWith(caches.match(req, { ignoreSearch: true, ignoreVary: true }).then((hit) => hit || fetch(req)));
+  // Fichiers de l'application : cache d'abord ; ceux qui n'ont pas été pré-téléchargés (ex. lecteur PDF)
+  // sont mis en cache à leur première utilisation.
+  event.respondWith(
+    caches.match(req, { ignoreSearch: true, ignoreVary: true }).then(
+      (hit) =>
+        hit ||
+        fetch(req).then((res) => {
+          if (res.ok && url.pathname.includes('/assets/')) {
+            const copy = res.clone();
+            caches.open(CACHE).then((c) => c.put(req, copy));
+          }
+          return res;
+        }),
+    ),
+  );
 });
 
 // ---------- Rappels en arrière-plan (best-effort) ----------

@@ -1,7 +1,7 @@
 // Import de relevés bancaires CSV téléchargés manuellement. Aucune connexion bancaire.
 // Le contenu brut n'est jamais enregistré : seules les opérations validées le sont.
 
-import { parseUserDate, diffDays, type ISODate } from './dates';
+import { parseUserDate, diffDays, addDays, today, type ISODate } from './dates';
 import { parseAmount } from './money';
 import { detectSensitive, maskSensitive } from './sensitive';
 import { labelSimilarity } from './categorize';
@@ -88,14 +88,15 @@ export function detectHeaderRow(rows: string[][]): number {
   const freq = new Map<number, number>();
   for (const c of counts) freq.set(c, (freq.get(c) ?? 0) + 1);
   const modal = [...freq.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0]?.[0] ?? 0;
+  const wide = (r: string[]) => r.filter((f) => f !== '').length >= 2 && r.length >= Math.max(2, modal - 1);
+  const hasDate = (r: string[]) => r.some((f) => parseUserDate(f) !== null);
+  // 1) Une vraie ligne de titres (Date, Libellé, Débit…) sans date.
   for (let i = 0; i < Math.min(rows.length, 40); i++) {
     const r = rows[i];
-    if (r.length < Math.max(2, modal - 1)) continue;
-    const headerish = r.filter((f) => HEADER_WORDS.test(f)).length;
-    const hasDate = r.some((f) => parseUserDate(f) !== null);
-    if (headerish >= 2 && !hasDate) return i;
-    if (hasDate) return Math.max(-1, i - 1); // pas d'en-tête explicite
+    if (wide(r) && !hasDate(r) && r.filter((f) => HEADER_WORDS.test(f)).length >= 2) return i;
   }
+  // 2) Sinon : la ligne qui précède la première ligne datée (pas d'en-tête explicite).
+  for (let i = 0; i < Math.min(rows.length, 40); i++) if (wide(rows[i]) && hasDate(rows[i])) return Math.max(-1, i - 1);
   return 0;
 }
 
@@ -189,6 +190,8 @@ export interface ParsedRow {
   line: number; // numéro de ligne dans le fichier (1 = première)
   ok: boolean;
   error?: string;
+  /** Ligne écartée sans être une erreur (PDF : en-tête, solde, total…) */
+  ignored?: boolean;
   date?: ISODate;
   label: string;
   amount?: number; // centimes, positif
@@ -196,14 +199,43 @@ export interface ParsedRow {
   maskedCount: number;
 }
 
-export function extractRows(rows: string[][], headerRow: number, map: ColumnMapping): ParsedRow[] {
+export interface ExtractOptions {
+  /** Relevé PDF : lignes de suite rattachées au libellé précédent, en-têtes/soldes/totaux écartés. */
+  pdf?: boolean;
+  /** Année à utiliser pour les dates sans année (« 03.11 »). */
+  yearHint?: number;
+  /** PDF : position de chaque ligne du tableau (même index que `rows`). */
+  lineMeta?: Array<{ page: number; y: number; h: number }>;
+}
+
+// Dans les libellés bancaires, les références du type « P1234567 » ne sont pas des numéros de passeport :
+// on masque IBAN, cartes, AVS et numéros de compte, pas ces références.
+const maskLabel = (s: string) => maskSensitive(s, { skip: ['id'] });
+
+function parseDateCell(value: string, order: 'dmy' | 'mdy' | 'ymd', yearHint?: number, ref: ISODate = today()): ISODate | null {
+  const d = parseUserDate(value, order);
+  if (d || !yearHint) return d;
+  const m = value.trim().match(/^(\d{1,2})[./-](\d{1,2})\.?$/);
+  if (!m) return null;
+  const [a, b] = order === 'mdy' ? [+m[2], +m[1]] : [+m[1], +m[2]];
+  let iso = parseUserDate(`${a}.${b}.${yearHint}`, 'dmy');
+  // Relevé de décembre lu en janvier : une date « future » de plus d'un mois appartient à l'année précédente.
+  if (iso && iso > addDays(ref, 31)) iso = parseUserDate(`${a}.${b}.${yearHint - 1}`, 'dmy');
+  return iso;
+}
+
+export function extractRows(rows: string[][], headerRow: number, map: ColumnMapping, opts: ExtractOptions = {}): ParsedRow[] {
   const data = rows.slice(headerRow + 1);
   const order = map.dateOrder === 'auto' ? detectDateOrder(data.map((r) => r[map.date] ?? '')) : map.dateOrder;
-  return data.map((r, i) => {
+  const out: ParsedRow[] = [];
+  let lastOk: ParsedRow | null = null;
+  let lastOkIndex = -10;
+  let lastMeta: { page: number; y: number; h: number } | undefined;
+  data.forEach((r, i) => {
     const line = headerRow + 2 + i;
     const rawLabel = [r[map.label] ?? '', map.label2 >= 0 ? r[map.label2] ?? '' : ''].filter(Boolean).join(' · ').replace(/\s+/g, ' ').trim();
-    const { text: label, count: maskedCount } = maskSensitive(rawLabel);
-    const date = parseUserDate(r[map.date] ?? '', order);
+    const { text: label, count: maskedCount } = maskLabel(rawLabel);
+    const date = parseDateCell(r[map.date] ?? '', order, opts.yearHint);
     let amount: number | null = null;
     let credit = false;
     if (map.mode === 'split') {
@@ -223,11 +255,36 @@ export function extractRows(rows: string[][], headerRow: number, map: ColumnMapp
         credit = map.sign === 'negative' ? a > 0 : a < 0;
       }
     }
-    if (!date) return { line, ok: false, error: `Date illisible : « ${r[map.date] ?? ''} »`, label, maskedCount };
-    if (amount === null) return { line, ok: false, error: 'Montant illisible ou absent', label, date, maskedCount };
-    if (amount === 0) return { line, ok: false, error: 'Montant nul', label, date, maskedCount };
-    return { line, ok: true, date, label: label || '(sans libellé)', amount, credit, maskedCount };
+    if (opts.pdf && !date) {
+      const otherText = r.some((cell, k) => cell && k !== map.label && k !== map.label2 && k !== map.date);
+      // Suite du libellé de l'opération précédente : ligne de texte seule, juste en dessous
+      // (même page, interligne serré). Un pied de page ou l'en-tête de la page suivante n'est pas rattaché.
+      const meta = opts.lineMeta?.[headerRow + 1 + i];
+      const close = meta && lastMeta ? meta.page === lastMeta.page && lastMeta.y - meta.y > 0 && lastMeta.y - meta.y <= 1.6 * Math.max(meta.h, lastMeta.h) : i - lastOkIndex === 1;
+      if (lastOk && amount === null && label && !otherText && i - lastOkIndex === 1 && close) {
+        const merged = maskLabel(`${lastOk.label} ${label}`.replace(/\s+/g, ' '));
+        lastOk.label = merged.text.slice(0, 200);
+        lastOk.maskedCount = merged.count;
+        lastOkIndex = i;
+        lastMeta = meta;
+        return;
+      }
+      lastOk = null;
+      out.push({ line, ok: false, ignored: true, error: 'Ligne sans date (en-tête, solde, total…)', label: label || maskLabel(r.filter(Boolean).join(' ')).text, maskedCount });
+      return;
+    }
+    if (!date) return out.push({ line, ok: false, error: `Date illisible : « ${r[map.date] ?? ''} »`, label, maskedCount });
+    if (amount === null || amount === 0) {
+      if (opts.pdf) return out.push({ line, ok: false, ignored: true, error: 'Ligne sans montant (solde, report…)', label, date, maskedCount });
+      return out.push({ line, ok: false, error: amount === 0 ? 'Montant nul' : 'Montant illisible ou absent', label, date, maskedCount });
+    }
+    const row: ParsedRow = { line, ok: true, date, label: label || '(sans libellé)', amount, credit, maskedCount };
+    out.push(row);
+    lastOk = row;
+    lastOkIndex = i;
+    lastMeta = opts.lineMeta?.[headerRow + 1 + i];
   });
+  return out;
 }
 
 /** Doublon possible : même date et même montant, ou montant identique avec libellé proche à ±3 jours. */
